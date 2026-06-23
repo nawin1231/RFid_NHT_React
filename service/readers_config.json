@@ -1,0 +1,10 @@
+[
+    {"port": 8000, "type": "register",   "ip": "192.168.1.101", "power": 5, "location": "REG1",  "machine_no": null,  "machine_parts": []},
+
+    {"port": 8001, "type": "pallet",     "ip": "192.168.1.102", "power": 5, "location": "W1",  "machine_no": null,  "machine_parts": []},
+    
+
+    {"port": 8002, "type": "washing",    "ip": "192.168.1.102", "power": 5, "location": null,  "machine_no": null,  "machine_parts": []},
+
+    {"port": 8003, "type": "on_machine", "ip": "192.168.1.102", "power": 5, "location": "MBR1","machine_no": "FFL29","machine_parts": ["2SF-608XZZAT-NTP93"]}
+]
