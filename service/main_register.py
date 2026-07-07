@@ -15,7 +15,7 @@ READER_IP   = "192.168.1.101"
 READER_PORT = 6000
 READER_POWER = 5
 COOLDOWN    = 3
-NODE_URL    = "http://localhost:5000/api/rfid"
+NODE_URL    = "://localhost:5000/api/rfid"
 
 # STATE
 reader_state = {

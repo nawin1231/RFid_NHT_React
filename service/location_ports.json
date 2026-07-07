@@ -1,0 +1,10 @@
+{
+    "REG1": {
+        "port": 8000,
+        "type": "register"
+    },
+    "W1": {
+        "port": 8002,
+        "type": "washing"
+    }
+}

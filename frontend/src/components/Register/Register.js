@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { backendApi, pythonApi, jobTicketApi } from '../../config/instance';
+import { backendApi, pythonApi, jobTicketApi, urlParameter } from '../../config/instance';
+import { useSearchParams } from 'react-router-dom';
 // import { getOperator } from '../../config/auth';
 import Swal from 'sweetalert2';
 
@@ -29,6 +30,10 @@ const InfoField = ({ label, value, mono = false }) => {
 
 const Register = () => {
 
+  const [searchParams] = useSearchParams();
+  const location = searchParams.get('location');
+  const deviceApi = urlParameter(location) || pythonApi;
+
   // State
   const [barcode, setBarcode] = useState('');
   const [info, setInfo] = useState(null);    // ข้อมูลจาก API
@@ -45,18 +50,19 @@ const Register = () => {
 
   // ไปช่อง input แรก
   useEffect(() => {
-  if (!lotSaved) {
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
-  }
-}, [lotSaved]);
+    if (!lotSaved) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 50);
+    }
+  }, [lotSaved]);
 
   // new-tag ทุก 500ms
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await pythonApi.get('/new-tag');
+        // const res = await pythonApi.get('/new-tag');
+        const res = await deviceApi.get('/new-tag');
         if (res.data.tag_id) {
           setTagId(res.data.tag_id);
         }
@@ -64,7 +70,8 @@ const Register = () => {
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
 
   // ถ้าได้ tag และ lot saved แล้ว → registerTray อัตโนมัติ
   useEffect(() => {
@@ -95,7 +102,7 @@ const Register = () => {
     setLoading(true);
 
     try {
-      const res = await jobTicketApi.get(`/${target.trim()}`);
+      const res = await backendApi.get(`/job-ticket/${target.trim()}`);
       const data = res.data;
 
       setInfo({
@@ -249,16 +256,22 @@ const Register = () => {
             ref={inputRef}
             type="text"
             value={barcode}
-            // onChange={(e) => setBarcode(e.target.value.toUpperCase())}
-            // onKeyDown={(e) => e.key === 'Enter' && fetchInfo()}
+            onChange={(e) => setBarcode(e.target.value.toUpperCase())}
+            onKeyDown={(e) => e.key === 'Enter' && fetchInfo()}
             // สแกนหา tag ใน 1 วิ
             onChange={(e) => {
               setBarcode(e.target.value.toUpperCase());
               clearTimeout(window._barcodeTimer);
               window._barcodeTimer = setTimeout(() => {
                 if (e.target.value.trim()) fetchInfo(e.target.value.trim());
-              }, 1000);
+              }, 500);
             }}
+            // onChange={(e) => setBarcode(e.target.value.toUpperCase())}
+            // onKeyDown={(e) => {
+            //   if (e.key === 'Enter') {
+            //     if (e.target.value.trim()) fetchInfo(e.target.value.trim());
+            //   }
+            // }}
             placeholder="Waiting for scanner..."
             disabled={loading || lotSaved}
             className="flex-1 h-10 px-3 text-sm font-mono border border-gray-200 rounded-lg

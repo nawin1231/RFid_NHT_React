@@ -10,18 +10,29 @@ import {
     ControlOutlined,
     ClearOutlined,
     ToolOutlined,
+    WifiOutlined,
+    SwapOutlined,
+    ApiOutlined,
+    SearchOutlined,
+    AlertOutlined,
 } from '@ant-design/icons';
 // import { getOperator, removeOperator } from '../../config/auth';
 
 const menuItems = [
-    { label: 'Dashboard', path: '/dashboard', icon: <DashboardOutlined /> },
-    { label: 'Register', path: '/register', icon: <ScanOutlined /> },
+    // { label: 'Dashboard', path: '/dashboard', icon: <DashboardOutlined /> },
+    // { label: 'Register', path: '/register', icon: <ScanOutlined /> },
+    { label: 'Multi Register', path: '/multi-register', icon: <ScanOutlined /> },
     { label: 'Machine Validation', path: '/machine-validation', icon: <SettingOutlined /> },
-    { label: 'History', path: '/history', icon: <HistoryOutlined /> },
-    { label: 'Pallet', path: '/pallet', icon: <ControlOutlined /> },
-    { label: 'Washing', path: '/washing', icon: <ClearOutlined /> },
-    { label: 'On Machine', path: '/on-machine', icon: <ToolOutlined /> },
-
+    { label: 'Tag Search', path: '/tag-search', icon: <SearchOutlined /> },
+    { label: 'MBR Monitor', path: '/mbr-monitor', icon: <AlertOutlined /> },
+    { label: 'Location URL', path: '/location-reader', icon: <ApiOutlined /> },
+    { label: 'Reader Status', path: '/reader-status', icon: <WifiOutlined /> },
+    { label: 'Reader Config', path: '/reader-config', icon: <SwapOutlined /> },
+    { label: 'History', path: '/history', icon: <HistoryOutlined /> }
+    // { label: 'Pallet', path: '/pallet', icon: <ControlOutlined /> },
+    // { label: 'Washing', path: '/washing', icon: <ClearOutlined /> },
+    // { label: 'On Machine', path: '/on-machine', icon: <ToolOutlined /> },
+    
 ];
 
 const Sidebar = () => {

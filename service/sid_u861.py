@@ -124,19 +124,24 @@ def inventory_g2(port_handle: int) -> list:
         return []
 
     # แปลง buffer เป็น EPC list
-    raw      = bytes(epc_buffer[:total_len.value])
+    raw = bytes(b & 0xFF for b in epc_buffer[:total_len.value])
     epc_list = []
     idx      = 0
 
     for _ in range(card_num.value):
-        epc_len   = raw[idx]        # byte แรกบอกความยาว EPC
-        idx      += 1               # ข้าม length byte
+        if idx >= len(raw):
+            break
+
+        epc_len = raw[idx]
+        idx    += 1
+        if idx + epc_len > len(raw):
+            break
         epc_bytes = raw[idx:idx + epc_len]
         epc_list.append(epc_bytes.hex().upper())
-        idx      += epc_len + 1     # ข้าม RSSI byte
-
+        idx += epc_len
+        if idx < len(raw):
+            idx += 1
     return epc_list
-
 
 # POWER
 

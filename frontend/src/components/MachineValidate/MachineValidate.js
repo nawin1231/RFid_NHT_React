@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { backendApi, machineApi, washingApi } from '../../config/instance';
+import { backendApi, washingApi } from '../../config/instance';
+import { useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 
 const showAlert = (msg, type) => {
     Swal.fire({
@@ -26,28 +28,53 @@ const InfoField = ({ label, value, mono = false }) => {
 
 const MachineValidate = () => {
 
-    const [lotInfo, setLotInfo]         = useState(null);
-    const [machineList, setMachineList] = useState([]);
-    const [tagId, setTagId]             = useState('');
-    const [loading, setLoading]         = useState(false);
-    const [trayDone, setTrayDone]       = useState(0);
+    const [searchParams] = useSearchParams();
+    const location = searchParams.get('location');
+    const [deviceApi, setDeviceApi] = useState(null);
+    const [deviceReady, setDeviceReady] = useState(false);
 
+    // State
+    const [lotInfo, setLotInfo] = useState(null);
+    const [machineList, setMachineList] = useState([]);
+    const [tagId, setTagId] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [trayDone, setTrayDone] = useState(0);
+
+    // รันตอน location เปลี่ยน port
     useEffect(() => {
+        setDeviceReady(false);
+        backendApi.get('/location-ports').then(res => {
+            const ports = res.data;
+            const config = location ? ports[location] : null;
+            if (config) {
+                setDeviceApi(() => axios.create({ baseURL: `http://localhost:${config.port}` }));
+            } else {
+                setDeviceApi(() => washingApi);
+            }
+            setDeviceReady(true);
+        }).catch(() => {
+            setDeviceApi(() => washingApi);
+            setDeviceReady(true);
+        });
+    }, [location]);
+
+    // รันเมื่อ deviceApi พร้อมแล้ว
+    useEffect(() => {
+        if (!deviceReady || !deviceApi) return;
         const interval = setInterval(async () => {
             try {
-                const res = await washingApi.get('/new-tag/washing');
+                const res = await deviceApi.get('/new-tag/washing');
                 if (res.data.tag_id) {
-                    // รอ 1 วิ ให้ SP update after_washing เสร็จก่อน
                     await new Promise(r => setTimeout(r, 1000));
                     await fetchLotInfo(res.data.tag_id);
                 }
-            } catch { }
+            } catch (err) {
+                console.log('poll error:', err.config?.url, err.message);
+             }
         }, 500);
         return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    // ดึงข้อมูล lot + นับ tray ที่ผ่าน after_washing
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location, deviceApi, deviceReady]);
     const fetchLotInfo = async (tag) => {
         setLoading(true);
         try {
@@ -57,9 +84,7 @@ const MachineValidate = () => {
                 showAlert('Tag not found!', 'error');
                 return;
             }
-
             const data = res.data.data;
-
             // ยังไม่ได้ update pallet location
             if (data.sub_process === 'registered') {
                 showAlert('Must update pallet location first!', 'warning');
@@ -72,7 +97,7 @@ const MachineValidate = () => {
 
             // นับ tray ที่ผ่าน after_washing แล้วใน lot นี้
             const countRes = await backendApi.get(`/tray_count/${data.barcode}`);
-            const done     = countRes.data.after_washing_done ?? 0;
+            const done = countRes.data.after_washing_done ?? 0;
             setTrayDone(done);
 
             // ครบทุก tray แสดง machine list
@@ -99,21 +124,33 @@ const MachineValidate = () => {
         return null;
     };
 
-    // ดึง machine ที่ตรงกับ part_no + rp
-    // ใช้ startsWith แทน exact match เพราะ part_no จาก job ticket เป็นแค่ prefix
-    // รอ Mapping API จาก IT
+    // ดึง machine ที่ตรงกับ part_no
     const fetchMachineList = async (partNo, rwDiameter) => {
         try {
-            const res = await machineApi.get('N?processes=1520,1512');
-            const rp  = extractRp(rwDiameter);
-
+            // เรียก part convert
+            const convertRes = await backendApi.get(`/part-convert/${partNo}`);
+            const converts = convertRes.data;
+            console.log('part_no ที่ใช้หา:', partNo);
+            console.log('converts ทั้งหมด:', converts.length, converts.slice(0, 3));
+            // filter partConvertFrom ตรงกับ part_no
+            const matchedConverts = converts.filter(c => c.partConvertFrom === partNo);
+            console.log('matchedConverts:', matchedConverts);
+            const convertedParts = matchedConverts.map(c => c.partConvertTo);
+            // ถ้าไม่มี convert ใช้ part_no เดิม
+            const partsToMatch = convertedParts.length > 0 ? convertedParts : [partNo];
+            console.log('partsToMatch:', partsToMatch);
+            // เรียก machine API
+            const res = await backendApi.get('/machine-list');
+            console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
             const matched = res.data.filter(item => {
-                const innerMatch = item.innerRingPart?.startsWith(partNo);
-                const outerMatch = item.outerRingPart?.startsWith(partNo);
-                const partMatch  = innerMatch || outerMatch;
-                if (!rp) return partMatch;
-                return partMatch && item.rp === rp;
+                const partMatch = partsToMatch.some(p =>
+                    item.innerRingPart === p ||
+                    item.outerRingPart === p
+                );
+                return partMatch;
             });
+            console.log('matched:', matched);
+
 
             setMachineList(matched);
             if (matched.length === 0) {
@@ -156,19 +193,23 @@ const MachineValidate = () => {
             </div>
 
             <div className="grid grid-cols-4 gap-3">
-                <InfoField label="Barcode"      value={lotInfo?.barcode}               mono />
-                <InfoField label="Part No."     value={lotInfo?.part_no}                    />
-                <InfoField label="Tray Counter" value={lotInfo?.tray_counter}               />
-                <InfoField label="RW Diameter"  value={extractRp(lotInfo?.rw_diameter)}     />
+                <InfoField label="Barcode" value={lotInfo?.barcode} mono />
+                <InfoField label="Part No." value={lotInfo?.part_no} />
+                <InfoField label="Tray Counter" value={lotInfo?.tray_counter} />
+                <InfoField label="RW Diameter" value={extractRp(lotInfo?.rw_diameter)} />
             </div>
 
             {/* TRAY PROGRESS — แสดงตอนมี lot info แล้ว */}
             {lotInfo && (
                 <div className="bg-white border border-gray-100 rounded-xl px-5 py-4">
                     <div className="flex items-center gap-3 mb-3">
+                        <p className="text-xl font-medium text-gray-500">
+                            Scan tag :
+                        </p>
                         <p className="text-2xl font-semibold text-blue-600">
                             {trayDone}/{lotInfo.tray_counter}
                         </p>
+                        <p className="text-sm text-gray-400">trays</p>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-2">
                         <div
@@ -221,7 +262,7 @@ const MachineValidate = () => {
                             )}
                             {machineList.map((m, i) => (
                                 <tr key={i} className="border-b border-gray-50 hover:bg-blue-50 transition-colors">
-                                    <td className="px-4 py-4 font-mono font-semibold text-blue-600 text-base">{m.machineNo || '—'}</td>
+                                    <td className="px-4 py-4 font-mono font-semibold text-blue-600 text-base">{m.machineNoProd || '—'}</td>
                                     <td className="px-4 py-4 text-gray-700">{m.groupPart || '—'}</td>
                                     <td className="px-4 py-4 text-gray-700">{m.bearingNo || '—'}</td>
                                     <td className="px-4 py-4 text-gray-500">{m.specification || '—'}</td>

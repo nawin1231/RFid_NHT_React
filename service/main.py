@@ -5,74 +5,83 @@ import threading
 import time
 import winsound
 import httpx
+import os
+import sys
+
 from sid_u861 import (
-    open_net_port,  close_net_port,
-    open_com_port,  close_com_port,
-    inventory_g2,   set_power,
-    get_error_desc, buzzer_and_led
+    open_net_port, close_net_port, inventory_g2, set_power, get_error_desc
 )
 
-# CONFIG
+# ==========================================
+# 🛠️ CONFIG สำหรับเทส (แก้ตรงนี้เพื่อเปลี่ยนร่าง)
+# ==========================================
+# READER_TYPE            = "register"
+# READER_TYPE            = "pallet"
+# READER_TYPE            = "washing"
+# READER_TYPE            = "on_machine"
+READER_TYPE            = "completed"
+
 READER_IP              = "192.168.1.101"
 READER_PORT            = 6000
 READER_POWER           = 20
 READER_PALLET_LOCATION = "W1"
 MACHINE_NO             = "FFL29"
 MACHINE_PART_NO        = ["2SF-608XZZAT-NTP93"]
+MIN_QTY                = 1000
 
-COOLDOWN        = 3
-COMPLETED_DELAY = 10
-
+COOLDOWN = 5
 NODE_URL = "http://localhost:5000/api/rfid"
 
-# STATE
+# ==========================================
+# 💾 STATE VARIABLES
+# ==========================================
 reader_state = {
     "connected":         False,
     "ip":                READER_IP,
-    "port":              READER_PORT,
     "port_handle":       -1,
     "last_tags":         [],
     "new_tag":           None,
-    "new_tag_washing":   None,
-    "on_machine_active": False,
-    "new_tag_pallet":    None,
+    "on_machine_active": True,
 }
 
-scanning    = False
-scan_thread = None
-
-tags_on_machine  = {}
-tags_disappeared = {}
-rejected_tags    = set()
-
-# ALARM
+scanning     = False
 alarm_active = False
 
+# State สำหรับ on_machine
+tags_on_machine = {}
+rejected_tags   = set()
+current_qty     = 0
+tag_qty         = {}
+
+# State สำหรับ pallet
+tags_on_pallet  = {}
+lot_tray_count  = {}
+lot_tags        = {}
+
+# ==========================================
+# 🚨 ALARM LOGIC
+# ==========================================
 def alarm_loop():
-    """loop เสียง alarm จนกว่า alarm_active จะเป็น False"""
     while alarm_active:
         winsound.Beep(2000, 500)
         time.sleep(0.1)
 
 def start_alarm():
-    """เริ่มเสียง alarm ถ้ายังไม่ดังอยู่"""
     global alarm_active
     if not alarm_active:
         alarm_active = True
-        t = threading.Thread(target=alarm_loop, daemon=True)
-        t.start()
+        threading.Thread(target=alarm_loop, daemon=True).start()
 
 def stop_alarm():
-    """หยุดเสียง alarm"""
     global alarm_active
     alarm_active = False
 
-def alarm_mismatch():
-    """เรียกตอน part_no ไม่ตรงกับ machine"""
-    start_alarm()
+# ==========================================
+# 📡 SCAN LOOPS (แยกตาม Process)
+# ==========================================
 
-# SCAN LOOP register / washing / machine validate
-def scan_loop():
+# 1. Base Loop & (Register / Washing)
+def scan_loop_general():
     global scanning
     seen_tags = {}
 
@@ -82,245 +91,251 @@ def scan_loop():
             reader_state["last_tags"] = tags
             now = time.time()
 
-            for tag in tags:
-                last_seen = seen_tags.get(tag, 0)
-                if now - last_seen >= COOLDOWN:
-                    seen_tags[tag]          = now
-                    reader_state["new_tag"] = tag
-                    print(f"[{time.strftime('%H:%M:%S')}] New tag: {tag}")
+            # Logic สำหรับ Register
+            if READER_TYPE == "register":
+                for tag in tags:
+                    if now - seen_tags.get(tag, 0) >= COOLDOWN:
+                        seen_tags[tag] = now
+                        reader_state["new_tag"] = tag
+                        print(f"[{time.strftime('%H:%M:%S')}] [register] New tag: {tag}")
+                        try:
+                            httpx.post(f"{NODE_URL}/register-event", json={"tag_id": tag, "location": READER_PALLET_LOCATION}, timeout=5)
+                        except Exception as ex:
+                            print(f"[register error]: {ex}")
 
-            seen_tags = {k: v for k, v in seen_tags.items() if k in tags}
+            # Logic สำหรับ Washing
+            elif READER_TYPE == "washing":
+                for tag in tags:
+                    if now - seen_tags.get(tag, 0) >= COOLDOWN:
+                        seen_tags[tag] = now
+                        reader_state["new_tag"] = tag
+                        print(f"[{time.strftime('%H:%M:%S')}] [washing] New tag: {tag}")
+                        try:
+                            res = httpx.post(f"{NODE_URL}/washing", json={"tag_id": tag, "location": READER_PALLET_LOCATION}, timeout=5)
+                            if res.json().get("result") == "LOT_NOT_READY":
+                                print(f"[washing] [WARNING] LOT NOT READY: {tag} (pallet ไม่ครบ)")
+                        except Exception as ex:
+                            print(f"[washing error]: {ex}")
+
+            # เคลียร์ tag ที่หมด cooldown สำหรับ Register / Washing
+            if READER_TYPE in ["register", "washing"]:
+                seen_tags = {k: v for k, v in seen_tags.items() if now - v < COOLDOWN}
 
         except Exception as ex:
             print(f"[{time.strftime('%H:%M:%S')}] Reader disconnected: {ex}")
-            reader_state["connected"]    = False
-            reader_state["last_tags"]    = []
-            reader_state["port_handle"]  = -1  # ← reset handle ตอนหลุด
+            reader_state["connected"] = False
+            reader_state["port_handle"] = -1
             scanning = False
             return
 
-        time.sleep(1)
+        time.sleep(0.5)
 
-# SCAN LOOP on_machine
+# 2. On Machine Logic
 def scan_loop_on_machine():
-    global tags_on_machine, tags_disappeared, rejected_tags 
-
+    global tags_on_machine, rejected_tags, current_qty, tag_qty
     while True:
-        if reader_state["on_machine_active"]:
+        if reader_state["connected"] and reader_state["on_machine_active"]:
             try:
                 current_tags = set(reader_state["last_tags"])
-                now          = time.time()
-
-                # tag ใหม่เข้ามา → เช็ค part_no ก่อน
+                now = time.time()
                 new_tags = current_tags - set(tags_on_machine.keys()) - rejected_tags
+                
+                # ของเข้า
                 for tag in new_tags:
-                    print(f"[{time.strftime('%H:%M:%S')}] [on_machine] New tag: {tag}")
+                    print(f"[{time.strftime('%H:%M:%S')}] [ON MACHINE] {tag}")
                     try:
-                        res     = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
-                        data    = res.json()
-                        part_no = data.get("data", {}).get("part_no")
+                        res = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
+                        data = res.json().get("data", {})
+                        part_no = data.get("part_no")
 
-                        # เช็คว่า machine part_no startswith job ticket part_no
-                        matched = any(
-                            machine_part.startswith(part_no)
-                            for machine_part in MACHINE_PART_NO
-                        )
-
-                        if not matched:
-                            # ไม่ตรง alarm ไม่ให้ on_machine
-                            print(f"[alarm] MISMATCH: {tag} part_no={part_no}")
-                            rejected_tags.add(tag) 
+                        if not part_no or not any(mp.startswith(part_no) for mp in MACHINE_PART_NO):
+                            print(f"[alarm] MISMATCH: {tag}")
+                            rejected_tags.add(tag)
                             start_alarm()
                         else:
-                            # ตรง on_machine
                             stop_alarm()
                             tags_on_machine[tag] = now
-                            tags_disappeared.pop(tag, None)
-                            httpx.post(f"{NODE_URL}/on-machine", json={"tag_id": tag}, timeout=5)
-
+                            res = httpx.post(f"{NODE_URL}/on-machine", json={"tag_id": tag}, timeout=5)
+                            
+                            if res.json().get("result") == "LOT_NOT_READY":
+                                print(f"[on_machine] WARNING: LOT NOT READY")
+                                tags_on_machine.pop(tag, None)
+                                rejected_tags.add(tag)
+                                start_alarm()
+                            else:
+                                raw_qty = data.get("tray_qty", 0)
+                                tray_qty_val = raw_qty[0] if isinstance(raw_qty, list) else int(raw_qty or 0)
+                                tag_qty[tag] = tray_qty_val
+                                current_qty += tray_qty_val
                     except Exception as ex:
-                        print(f"[on_machine] error: {ex}")
+                        print(f"[on_machine error]: {ex}")
 
-                # rejected tag ออกจาก reader stop alarm
+                # ของออก
                 removed_rejected = rejected_tags - current_tags
                 if removed_rejected:
                     rejected_tags -= removed_rejected
-                    if not rejected_tags:
-                        stop_alarm()
+                    if not rejected_tags: stop_alarm()
 
-                # tag กลับมาก่อน completed reset timer
-                returned_tags = current_tags & set(tags_disappeared.keys())
-                for tag in returned_tags:
-                    print(f"[{time.strftime('%H:%M:%S')}] [on_machine] Tag returned: {tag}")
-                    tags_disappeared.pop(tag, None)
-                    tags_on_machine[tag] = now
-
-                # tag หายออก เริ่มนับเวลา
-                removed_tags = set(tags_on_machine.keys()) - current_tags
-                for tag in removed_tags:
-                    if tag not in tags_disappeared:
-                        tags_disappeared[tag] = now
-                        print(f"[{time.strftime('%H:%M:%S')}] [on_machine] Tag disappeared: {tag}")
-
-                # tag หายนานเกิน COMPLETED_DELAY completed
-                for tag, disappeared_time in list(tags_disappeared.items()):
-                    if now - disappeared_time >= COMPLETED_DELAY:
-                        if not reader_state["connected"]:
-                            print(f"[{time.strftime('%H:%M:%S')}] [on_machine] Reader disconnected → skip completed")
-                            continue
-                        print(f"[{time.strftime('%H:%M:%S')}] [on_machine] Tag completed: {tag}")
-                        tags_on_machine.pop(tag, None)
-                        tags_disappeared.pop(tag, None)
-                        try:
-                            httpx.post(f"{NODE_URL}/completed", json={"tag_id": tag}, timeout=5)
-                        except Exception as ex:
-                            print(f"[completed] POST error: {ex}")
-
-                # reader หลุด reset disappeared
-                if not reader_state["connected"]:
-                    tags_disappeared.clear()
-
-                # update tags_on_machine
-                tags_on_machine = {
-                    k: v for k, v in tags_on_machine.items()
-                    if k in current_tags
-                }
-
-                # mismatch tag ออกหมดแล้ว stop alarm
-                mismatch_tags = current_tags - set(tags_on_machine.keys())
-                if not mismatch_tags:
-                    stop_alarm()
+                left_tags = set(tags_on_machine.keys()) - current_tags
+                for tag in left_tags:
+                    qty_removed = tag_qty.pop(tag, 0)
+                    current_qty = max(0, current_qty - qty_removed)
+                    tags_on_machine.pop(tag, None)
 
             except Exception as ex:
-                print(f"[scan_loop_on_machine] Error: {ex}")
-
+                pass
         time.sleep(0.5)
 
-# CONNECT READER
+# 3. Pallet Logic
+def scan_loop_pallet():
+    global tags_on_pallet, lot_tray_count, lot_tags
+    while True:
+        if reader_state["connected"]:
+            try:
+                current_tags = set(reader_state["last_tags"])
+                now = time.time()
+                new_tags = current_tags - set(tags_on_pallet.keys())
+                
+                # ของเข้า Pallet
+                for tag in new_tags:
+                    try:
+                        res = httpx.post(f"{NODE_URL}/pallet", json={"tag_id": tag, "location": READER_PALLET_LOCATION}, timeout=5)
+                        if res.json().get("result") in ("OK", "DUPLICATE_LOCATION"):
+                            tags_on_pallet[tag] = now
+                            lot_data = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5).json().get("data", {})
+                            barcode = lot_data.get("barcode")
+                            tray_counter = lot_data.get("tray_counter", 0)
+                            if barcode:
+                                lot_tray_count[barcode] = tray_counter
+                                if barcode not in lot_tags: lot_tags[barcode] = set()
+                                lot_tags[barcode].add(tag)
+                    except: pass
+
+                # ของออกจาก Pallet
+                left_tags = set(tags_on_pallet.keys()) - current_tags
+                for tag in left_tags:
+                    tags_on_pallet.pop(tag, None)
+                    barcode = next((b for b, tags in lot_tags.items() if tag in tags), None)
+                    if barcode:
+                        remaining = lot_tags[barcode] & set(tags_on_pallet.keys())
+                        if len(remaining) == 0 and len(lot_tags.get(barcode, set())) >= lot_tray_count.get(barcode, 0):
+                            lot_tags.pop(barcode, None)
+                            lot_tray_count.pop(barcode, None)
+
+                tags_on_pallet = {k: v for k, v in tags_on_pallet.items() if k in current_tags}
+            except: pass
+        time.sleep(0.5)
+
+# 4. Completed Logic
+def scan_loop_completed():
+    seen_tags = {}
+    while True:
+        if reader_state["connected"]:
+            try:
+                tags = reader_state["last_tags"]
+                now = time.time()
+                for tag in tags:
+                    if now - seen_tags.get(tag, 0) >= COOLDOWN:
+                        seen_tags[tag] = now
+                        print(f"[{time.strftime('%H:%M:%S')}] [COMPLETED SCAN] {tag}")
+                        try:
+                            res = httpx.post(f"{NODE_URL}/completed", json={
+                                "tag_id": tag
+                                }, timeout=5)
+                            if res.json().get("result") == "NOT_ON_MACHINE":
+                                print(f"[completed] WARNING: NOT ON MACHINE")
+                                start_alarm()
+                                time.sleep(1)
+                                stop_alarm()
+                        except: pass
+                seen_tags = {k: v for k, v in seen_tags.items() if now - v < COOLDOWN}
+            except: pass
+        time.sleep(0.5)
+
+
+# ==========================================
+# 🔌 CONNECTION & LIFESPAN
+# ==========================================
 def connect_reader():
-    global scanning, scan_thread
-
-    try:
-        if reader_state["port_handle"] != -1:
-            close_net_port(reader_state["port_handle"])
-    except:
-        pass
-
+    global scanning
     time.sleep(1)
-
     result, handle = open_net_port(READER_IP, READER_PORT)
-    print(f"Connect result: {get_error_desc(result)}")
-
     if result == 0:
-        reader_state["port_handle"] = handle 
+        reader_state.update({"port_handle": handle, "connected": True})
         set_power(READER_POWER, handle)
-        reader_state["connected"] = True
-        scanning    = True
-        scan_thread = threading.Thread(target=scan_loop, daemon=True)
-        scan_thread.start()
-        print(f"✅ Connected to {READER_IP}:{READER_PORT} handle={handle}")
+        scanning = True
+        threading.Thread(target=scan_loop_general, daemon=True).start()
+        print(f"[OK] [{READER_TYPE}] Connected: {READER_IP}")
     else:
-        reader_state["connected"]   = False
-        reader_state["port_handle"] = -1
-        print(f"❌ Connect failed: {get_error_desc(result)}")
+        reader_state["connected"] = False
 
-# AUTO RECONNECT
 def reconnect_loop():
-    """วน loop เช็ค connection ถ้าหลุด → reconnect"""
     while True:
         if not reader_state["connected"]:
-            print(f"[{time.strftime('%H:%M:%S')}] Reconnecting...")
             connect_reader()
         time.sleep(5)
 
-# STARTUP / SHUTDOWN
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("Starting RFID service...")
-    t1 = threading.Thread(target=reconnect_loop, daemon=True)
-    t1.start()
-    t2 = threading.Thread(target=scan_loop_on_machine, daemon=True)
-    t2.start()
+    print(f"Starting {READER_TYPE} service (TEST MODE)")
+    threading.Thread(target=reconnect_loop, daemon=True).start()
+    
+    # เลือกรัน Loop เพิ่มเติมตาม Type
+    if READER_TYPE == "on_machine":
+        threading.Thread(target=scan_loop_on_machine, daemon=True).start()
+    elif READER_TYPE == "pallet":
+        threading.Thread(target=scan_loop_pallet, daemon=True).start()
+    elif READER_TYPE == "completed":
+        threading.Thread(target=scan_loop_completed, daemon=True).start()
+        
     yield
     global scanning
     scanning = False
     if reader_state["port_handle"] != -1:
         close_net_port(reader_state["port_handle"])
-    print("RFID service stopped")
 
-# FASTAPI APP
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# ENDPOINTS
-# ดูสถานะการเชื่อมต่อ reader
+# ==========================================
+# 🌐 API ENDPOINTS
+# ==========================================
 @app.get("/status")
 def status():
+    global current_qty
     return {
         "connected":   reader_state["connected"],
         "ip":          reader_state["ip"],
-        "port":        reader_state["port"],
-        "port_handle": reader_state["port_handle"],
+        "type":        READER_TYPE,
+        "location":    READER_PALLET_LOCATION,
+        "current_qty": current_qty,
+        "min_qty":     MIN_QTY,
+        "low_qty":     MIN_QTY > 0 and current_qty < MIN_QTY,
     }
 
-# ดู tag ทั้งหมดที่อยู่ในระยะ reader ตอนนี้
 @app.get("/tags")
 def get_tags():
-    return {
-        "tags":  reader_state["last_tags"],
-        "count": len(reader_state["last_tags"])
-    }
+    return {"tags": reader_state["last_tags"], "count": len(reader_state["last_tags"])}
 
-# ดึง tag ใหม่ล่าสุด ใช้กับ register + machine validate
 @app.get("/new-tag")
 def get_new_tag():
     tag = reader_state["new_tag"]
     reader_state["new_tag"] = None
     return {"tag_id": tag}
 
-# ดึง tag ใหม่ล่าสุด ใช้กับ washing reader
 @app.get("/new-tag/washing")
 def get_new_tag_washing():
     tag = reader_state["new_tag"]
     reader_state["new_tag"] = None
     return {"tag_id": tag}
 
-# ดึง tag ใหม่ล่าสุด ใช้กับ on_machine reader
-@app.get("/new-tag/on-machine")
-def get_new_tag_on_machine():
-    tag = reader_state["new_tag"]
-    reader_state["new_tag"] = None
-    return {"tag_id": tag}
-
-# เปิด on_machine reader เริ่ม track tag
-@app.post("/on-machine/start")
-def start_on_machine():
-    reader_state["on_machine_active"] = True
-    print(f"[{time.strftime('%H:%M:%S')}] On machine started")
-    return {"status": "started"}
-
-# ปิด on_machine reader หยุด track tag
-@app.post("/on-machine/stop")
-def stop_on_machine():
-    reader_state["on_machine_active"] = False
-    print(f"[{time.strftime('%H:%M:%S')}] On machine stopped")
-    return {"status": "stopped"}
-
-# ดึง tag ใหม่ล่าสุด ใช้กับ pallet reader return location
 @app.get("/new-tag/pallet")
 def get_new_tag_pallet():
     tag = reader_state["new_tag"]
     reader_state["new_tag"] = None
     return {"tag_id": tag, "location": READER_PALLET_LOCATION}
 
-# ทดสอบเสียง alarm
 @app.get("/test-alarm")
 def test_alarm():
-    t = threading.Thread(target=alarm_mismatch, daemon=True)
-    t.start()
+    threading.Thread(target=start_alarm, daemon=True).start()
     return {"status": "alarm triggered"}

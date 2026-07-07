@@ -1,11 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { backendApi, pythonApi, jobTicketApi } from '../../config/instance';
-import Swal from 'sweetalert2';
-import axios from 'axios';
+import React, { useState, useEffect } from 'react';
+import { backendApi } from '../../config/instance';
 import * as XLSX from 'xlsx';
-import {
-    PrinterOutlined,
-} from '@ant-design/icons';
 
 const STATUS_CONFIG = {
   before_washing: { label: 'Before Washing', pill: 'bg-amber-100 text-amber-800', dot: 'bg-amber-500' },
@@ -36,7 +31,7 @@ const COLUMNS = [
   'Tray Counter',
   'Tray Done',
   'Location',
-  'Created Date',
+  'Updated Date',
 ];
 
 const History = () => {
@@ -98,7 +93,7 @@ const History = () => {
       'Tray Counter': row.tray_counter || '',
       'Tray Done': row.tray_done || '',
       'Location': row.location || '',
-      'Created Date': row.created_at || '',
+      'Created Date': row.update_at || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -135,12 +130,12 @@ const History = () => {
   // Format date
   const formatDate = (val) => {
     if (!val) return '—';
-    return new Date(val).toLocaleString('en-GB');
+    return new Date(val).toLocaleString('th-TH');
   };
 
   const formatDateOnly = (val) => {
     if (!val) return '—';
-    return new Date(val).toLocaleDateString('en-GB');
+    return new Date(val).toLocaleDateString('th-TH');
   };
 
   return (
@@ -180,6 +175,7 @@ const History = () => {
           <option value="before_washing">Before Washing</option>
           <option value="after_washing">After Washing</option>
           <option value="on_machine">On Machine</option>
+          <option value="completed">Completed</option>
         </select>
 
         {/* reset */}
@@ -351,9 +347,9 @@ const History = () => {
                       {row.location || '—'}
                     </td>
 
-                    {/* Created Date */}
+                    {/* Update Date */}
                     <td className="px-3 py-2 text-gray-400 whitespace-nowrap">
-                      {formatDate(row.created_at)}
+                      {formatDate(row.update_at)}
                     </td>
 
                   </tr>
