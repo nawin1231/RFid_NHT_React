@@ -11,7 +11,7 @@ const Footer = () => {
       </div>
 
       <div className="text-xs text-gray-400 flex items-center gap-4">
-        <a href="/dashboard" className="hover:text-blue-600 transition-colors duration-150">
+        <a href="/location-reader" className="hover:text-blue-600 transition-colors duration-150">
           Dx Staff
         </a>
         <span className="w-1 h-1 bg-gray-300 rounded-full"></span>

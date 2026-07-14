@@ -35,7 +35,8 @@ MACHINE_NO             = CFG.get("machine_no") # ชื่อเครื่อ�
 MACHINE_PART_NO        = CFG.get("machine_parts", []) # part_no on_machine (ใช้กับ on_machine)
 MIN_QTY                = CFG.get("min_qty", 0) # จำนวนขั้นต่ำ ถ้าต่ำกว่านี้จะแจ้งเตือน MBR Monitor
 
-COOLDOWN = 30   # วินาที ป้องกันการสแกน tag เดิมซ้ำๆ
+COOLDOWN = 10   # วินาที ป้องกันการสแกน tag เดิมซ้ำๆ
+PALLET_OUT_COOLDOWN = 10 # วินาที เมื่อ Reader ไม่อ่าน tag ตรง pallet location หลังจาก tag ออกเกินเวลาที่กำหนดจะถือว่า out pallet แล้ว
 
 PROCESS_MAPPING = {
     'washing':    {'process_code': '1201', 'process': 'WATER WASHING 1'},
@@ -66,6 +67,7 @@ rejected_tags   = set() # tag ที่ถูก reject part_no ไม่ตร�
 
 # ตัวแปร tracking สำหรับ pallet reader
 tags_on_pallet  = {}   # เก็บ tag ที่อยู่หน้า pallet reader
+tags_disappeared_pallet = {} # tag หายรอ confirm
 lot_tray_count  = {}   # จำนวน tray ทั้งหมดของแต่ละ lot
 lot_tags        = {}   # เก็บ tag ทั้งหมดของแต่ละ lot
 
@@ -202,8 +204,8 @@ def scan_loop_on_machine():
                             matched = part_no in MACHINE_PART_NO
                             if not matched:
                                 try:
-                                    res_conv      = httpx.get(f"{NODE_URL}/part-convert/{part_no}", timeout=5)
-                                    conv_data     = res_conv.json()
+                                    res_conv = httpx.get(f"{NODE_URL}/part-convert/{part_no}", timeout=5)
+                                    conv_data = res_conv.json()
                                     converted_parts = []
                                     if isinstance(conv_data, list):
                                         converted_parts = [item.get("partConvertTo") for item in conv_data if isinstance(item, dict)]
@@ -267,7 +269,6 @@ def scan_loop_on_machine():
                     current_qty  = max(current_qty, 0)
                     print(f"[LEFT] qty-={qty_removed} current_qty={current_qty}")
                     tags_on_machine.pop(tag, None)
-                    # ส่ง AS400 issue out ตรงนี้ (รอ endpoint จาก IT)
 
                 # ถ้าไม่มี tag ที่ rejected เหลืออยู่ stop alarm
                 if not (current_tags - set(tags_on_machine.keys())):
@@ -326,106 +327,106 @@ def scan_loop_completed():
 
 # SCAN LOOP pallet ใช้เฉพาะ READER_TYPE = "pallet"
 def scan_loop_pallet():
-    global tags_on_pallet, lot_tray_count, lot_tags
-
+    global tags_on_pallet, lot_tray_count, lot_tags, tags_disappeared_pallet
     while True:
         if not reader_state["connected"]:
             time.sleep(0.5)
             continue
-
         try:
             current_tags = set(reader_state["last_tags"])
             now          = time.time()
-            t_str        = time.strftime('%H:%M:%S')
-
-            # tag ใหม่เข้ามา update location + track lot
+            # tag ใหม่เข้ามา
             new_tags = current_tags - set(tags_on_pallet.keys())
             for tag in new_tags:
-                print(f"[{t_str}] [TAG IN] {tag} -> {READER_PALLET_LOCATION}")
+                # ถ้า tag เคยหายไปแล้วกลับมา ยกเลิก disappeared
+                if tag in tags_disappeared_pallet:
+                    print(f"[{time.strftime('%H:%M:%S')}] [PALLET RETURNED] {tag}")
+                    tags_disappeared_pallet.pop(tag, None)
+                print(f"[{time.strftime('%H:%M:%S')}] [PALLET IN] {tag} -> {READER_PALLET_LOCATION}")
                 try:
                     res    = httpx.post(f"{NODE_URL}/pallet",
                         json={"tag_id": tag, "location": READER_PALLET_LOCATION},
                         timeout=5)
                     result = res.json().get("result")
-
                     if result in ("OK", "DUPLICATE_LOCATION"):
                         tags_on_pallet[tag] = now
                         lot_res      = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
                         lot_data     = lot_res.json().get("data", {})
                         barcode      = lot_data.get("barcode")
                         tray_counter = lot_data.get("tray_counter", 0)
-
                         if barcode:
                             lot_tray_count[barcode] = tray_counter
                             if barcode not in lot_tags:
                                 lot_tags[barcode] = set()
                             lot_tags[barcode].add(tag)
-                            current_count = len(lot_tags[barcode])
-                            print(f"           [LOT] {barcode} | Progress: {current_count}/{tray_counter}")
-
-                            if current_count == tray_counter:
-                                print(f"           [COMPLETE] Lot {barcode} all trays ready!")
-
+                            print(f"[pallet] lot={barcode} tag={tag} ({len(lot_tags[barcode])}/{tray_counter})")
                         if result == "DUPLICATE_LOCATION":
-                            print(f"           [INFO] Already at this location")
+                            print(f"[pallet] same location: {tag}")
                     else:
-                        print(f"[{t_str}] [WARNING] {result}: {tag}")
-
+                        print(f"[pallet] [WARNING] {result}: {tag}")
                 except Exception as ex:
-                    print(f"[{t_str}] [POST ERROR] {ex}")
-
-            # tag ออกจาก reader เช็คว่า lot ออกครบหรือยัง
+                    print(f"[pallet] POST error: {ex}")
+            # tag หายออก เริ่มนับ delay
             left_tags = set(tags_on_pallet.keys()) - current_tags
             for tag in left_tags:
-                print(f"[{t_str}] [TAG OUT] {tag} -> {READER_PALLET_LOCATION}")
+                if tag not in tags_disappeared_pallet:
+                    print(f"[{time.strftime('%H:%M:%S')}] [PALLET MISSING] {tag} → waiting {PALLET_OUT_COOLDOWN}s")
+                    tags_disappeared_pallet[tag] = now
                 tags_on_pallet.pop(tag, None)
+            # เช็ค tag ที่หายไปนานเกิน delay
+            for tag, t in list(tags_disappeared_pallet.items()):
+                if now - t >= PALLET_OUT_COOLDOWN:
+                    print(f"[{time.strftime('%H:%M:%S')}] [PALLET OUT] {tag} -> {READER_PALLET_LOCATION}")
+                    tags_disappeared_pallet.pop(tag, None)
 
-                # หา barcode ของ lot ที่ tag ผูกไว้อยู่
-                barcode = next((b for b, tags in lot_tags.items() if tag in tags), None)
-                if barcode:
-                    tray_counter = lot_tray_count.get(barcode, 0)
-                    remaining    = lot_tags[barcode] & set(tags_on_pallet.keys())
-                    print(f"           [LOT] {barcode} | Remaining: {len(remaining)}/{tray_counter}")
+                    barcode = next((b for b, tags in lot_tags.items() if tag in tags), None)
+                    if barcode:
+                        tray_counter = lot_tray_count.get(barcode, 0)
+                        remaining    = lot_tags[barcode] & set(tags_on_pallet.keys())
+                        print(f"[pallet] lot={barcode} remaining={len(remaining)}/{tray_counter}")
 
-                    # ถ้าออกครบทุก tag และเคยเข้ามาครบ tray_counter แล้ว = LOT OUT
-                    if len(remaining) == 0 and len(lot_tags.get(barcode, set())) >= tray_counter:
-                        print(f"[{t_str}] [PALLET LOT OUT] lot={barcode} ออกครบทุก tag")
-                        # ส่ง AS400 issue out ตรงนี้ (รอ endpoint จาก IT)
-                        lot_tags.pop(barcode, None)
-                        lot_tray_count.pop(barcode, None)
-
-            # reader หลุด clear tracking ทั้งหมด
+                        if len(remaining) == 0 and len(lot_tags.get(barcode, set())) >= tray_counter:
+                            print(f"[{time.strftime('%H:%M:%S')}] [PALLET LOT OUT] lot={barcode}")
+                            try:
+                                httpx.post(f"{NODE_URL}/pallet-lot-out", json={
+                                    "barcode":  barcode,
+                                    "location": READER_PALLET_LOCATION,
+                                }, timeout=5)
+                            except Exception as ex:
+                                print(f"[pallet-lot-out] error: {ex}")
+                            lot_tags.pop(barcode, None)
+                            lot_tray_count.pop(barcode, None)
+            # reader หลุด clear tracking
             if not reader_state["connected"]:
-                print(f"[{time.strftime('%H:%M:%S')}] [DISCONNECTED] Clearing pallet tracking...")
                 tags_on_pallet.clear()
                 lot_tags.clear()
                 lot_tray_count.clear()
-
-            # sync tags_on_pallet ให้ตรงกับ current_tags เสมอ
+                tags_disappeared_pallet.clear()
+            # sync tags_on_pallet
             tags_on_pallet = {k: v for k, v in tags_on_pallet.items() if k in current_tags}
-
         except Exception as ex:
-            print(f"[{time.strftime('%H:%M:%S')}] [SYSTEM ERROR] {ex}")
-
+            print(f"[scan_loop_pallet] Error: {ex}")
         time.sleep(0.5)
-
+        
 # CONNECT READER เชื่อมต่อ reader ผ่าน TCP/IP และเริ่ม scan_loop
 def connect_reader():
     global scanning, scan_thread
-    try:
-        # ปิด connection เดิมก่อน
-        if reader_state["port_handle"] != -1:
+    for _ in range(3):
+        try:
             close_net_port(reader_state["port_handle"])
-    except:
-        pass
-    time.sleep(1)
+        except:
+            pass
+        time.sleep(1)
+    
+    reader_state["port_handle"] = -1
+    time.sleep(2) 
 
     result, handle = open_net_port(READER_IP, READER_PORT_TCP)
     print(f"Connect result: {get_error_desc(result)}")
 
     if result == 0:
         reader_state["port_handle"] = handle
-        set_power(READER_POWER, handle)  # ตั้งค่ากำลังส่งสัญญาณ
+        set_power(READER_POWER, handle)
         reader_state["connected"] = True
         scanning    = True
         scan_thread = threading.Thread(target=scan_loop, daemon=True)
@@ -435,14 +436,55 @@ def connect_reader():
         reader_state["connected"]   = False
         reader_state["port_handle"] = -1
         print(f"[FAIL] Connect failed: {get_error_desc(result)}")
+# def connect_reader():
+#     global scanning, scan_thread
+#     try:
+#         # ปิด connection เดิมก่อน
+#         if reader_state["port_handle"] != -1:
+#             close_net_port(reader_state["port_handle"])
+#     except:
+#         pass
+#     time.sleep(1)
+
+#     result, handle = open_net_port(READER_IP, READER_PORT_TCP)
+#     print(f"Connect result: {get_error_desc(result)}")
+
+#     if result == 0:
+#         reader_state["port_handle"] = handle
+#         set_power(READER_POWER, handle)  # ตั้งค่ากำลังส่งสัญญาณ
+#         reader_state["connected"] = True
+#         scanning    = True
+#         scan_thread = threading.Thread(target=scan_loop, daemon=True)
+#         scan_thread.start()
+#         print(f"[OK] [{READER_TYPE}] Connected: {READER_IP}")
+#     else:
+#         reader_state["connected"]   = False
+#         reader_state["port_handle"] = -1
+#         print(f"[FAIL] Connect failed: {get_error_desc(result)}")
 
 def reconnect_loop():
-    """วน loop ตลอดเวลา ถ้า reader หลุดจะ reconnect ทุก 5 วินาที"""
+    fail_count = 0
     while True:
         if not reader_state["connected"]:
             print(f"[{time.strftime('%H:%M:%S')}] Reconnecting...")
             connect_reader()
+            
+            if not reader_state["connected"]:
+                fail_count += 1
+                print(f"[FAIL] attempt {fail_count}")
+                if fail_count >= 3:
+                    print(f"[FAIL] Too many retries → exiting for restart")
+                    os._exit(1) 
+            else:
+                fail_count = 0
         time.sleep(5)
+# def reconnect_loop():
+#     """วน loop ตลอดเวลา ถ้า reader หลุดจะ reconnect ทุก 5 วินาที"""
+#     while True:
+#         if not reader_state["connected"]:
+#             print(f"[{time.strftime('%H:%M:%S')}] Reconnecting...")
+#             connect_reader()
+#         time.sleep(5)
 
 # LIFESPAN — รันตอน startup และ shutdown ของ FastAPI
 @asynccontextmanager
@@ -458,7 +500,7 @@ async def lifespan(app: FastAPI):
     if READER_TYPE == "completed":
         threading.Thread(target=scan_loop_completed, daemon=True).start()
     yield
-    # Shutdown — หยุด scan และปิด connection
+    # Shutdown หยุด scan และปิด connection
     global scanning
     scanning = False
     if reader_state["port_handle"] != -1:

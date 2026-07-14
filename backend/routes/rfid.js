@@ -5,6 +5,8 @@ const axios = require('axios');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const AS400_INTERNAL_URL = process.env.AS400_INTERNAL_URL || 'http://localhost:5000/api/as400';
+
 
 // Job Ticket API
 const JOB_TICKET_URL = process.env.JOB_TICKET_URL;
@@ -202,8 +204,19 @@ router.post('/pallet', async (req, res) => {
             .execute('Stored_tb_rfid_lot_update_location');
 
         const status = result.recordset[0]?.result ?? 'OK';
+        if (status === 'OK') {
+            const lotResult = await pool.request()
+                .input('tag_id', sql.VarChar, tag_id)
+                .execute('Stored_tb_rfid_lot_select_by_tagid');
+            const lotData = lotResult.recordset[0];
+            axios.post(`${AS400_INTERNAL_URL}/pallet-in`, {
+                tag_id,
+                barcode: lotData?.barcode,
+                location,
+                lot_data: lotData,
+            }).catch(err => console.error('[AS400] pallet-in error:', err.message));
+        }
         res.json({ result: status });
-
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -487,6 +500,9 @@ router.put('/location-ports', (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+//=========================================================
+// หน้า As400 Log
+//=========================================================
 
 
 module.exports = router;

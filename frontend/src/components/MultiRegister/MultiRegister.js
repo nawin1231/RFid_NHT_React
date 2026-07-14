@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { backendApi, pythonApi } from '../../config/instance';
+import API from '../../config/constance';
+import axios from 'axios';
 import Swal from 'sweetalert2';
 
 const showAlert = (msg, type) => {
@@ -14,6 +17,11 @@ const showAlert = (msg, type) => {
 
 const MultiRegister = () => {
 
+    const [searchParams] = useSearchParams();
+    const location = searchParams.get('location');
+
+    const [deviceApi, setDeviceApi] = useState(null);
+    const [deviceReady, setDeviceReady] = useState(false);
     const [barcode, setBarcode] = useState('');
     const [jobs, setJobs] = useState([]);
     const [started, setStarted] = useState(false);
@@ -22,6 +30,23 @@ const MultiRegister = () => {
     const [tagId, setTagId] = useState('');
 
     const inputRef = useRef(null);
+
+    useEffect(() => {
+        setDeviceReady(false);
+        backendApi.get('/location-ports').then(res => {
+            const ports = res.data;
+            const config = location ? ports[location] : null;
+            if (config) {
+                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
+            } else {
+                setDeviceApi(() => pythonApi);
+            }
+            setDeviceReady(true);
+        }).catch(() => {
+            setDeviceApi(() => pythonApi);
+            setDeviceReady(true);
+        });
+    }, [location]);
 
     // focus input
     useEffect(() => {
@@ -32,17 +57,17 @@ const MultiRegister = () => {
         return () => document.removeEventListener('click', refocus);
     }, [started, loading]);
 
-    // poll tag จาก register reader
+    // poll tag จาก reader
     useEffect(() => {
-        if (!started) return;
+        if (!started || !deviceReady || !deviceApi) return;
         const interval = setInterval(async () => {
             try {
-                const res = await pythonApi.get('/new-tag');
+                const res = await deviceApi.get('/new-tag');
                 if (res.data.tag_id) setTagId(res.data.tag_id);
             } catch { }
-        }, 1000);
+        }, 300);
         return () => clearInterval(interval);
-    }, [started]);
+    }, [started, deviceApi, deviceReady]);
 
     // ถ้าได้ tag ใหม่ ต้องมี active job ก่อน
     useEffect(() => {
@@ -56,7 +81,7 @@ const MultiRegister = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tagId]);
 
-    // scan barcode รอ 1 วิ fetch register-lot ทันที
+    // scan barcode 1 วิ fetch + register-lot
     useEffect(() => {
         if (!barcode) return;
         const timer = setTimeout(async () => {
@@ -118,6 +143,10 @@ const MultiRegister = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [barcode]);
 
+    useEffect(() => {
+        if (location) localStorage.setItem('rfid_location_register', location);
+    }, [location]);
+
     const removeJob = (jobTicketNo) => {
         setJobs(prev => prev.filter(j => j.job_ticket_no !== jobTicketNo));
         if (activeJob === jobTicketNo) setActiveJob(null);
@@ -131,7 +160,7 @@ const MultiRegister = () => {
         setStarted(true);
         setActiveJob(jobs[0].job_ticket_no);
         setTagId('');
-        pythonApi.get('/new-tag').catch(() => {});
+        deviceApi?.get('/new-tag').catch(() => { });
         showAlert('Started! Scan tags now', 'success');
     };
 
@@ -180,7 +209,7 @@ const MultiRegister = () => {
                             setTagId('');
                         }, 1500);
                     } else if (justDone) {
-                        showAlert(`${jobTicketNo} complete! Next job selected`, 'success');
+                        showAlert(`${jobTicketNo} complete!`, 'success');
                         const next = findNextIncompleteJob(updated, jobTicketNo);
                         setActiveJob(next);
                     }
@@ -204,14 +233,12 @@ const MultiRegister = () => {
     };
 
     return (
-        <div className="flex flex-col gap-3 h-full">
+        <div className="flex flex-col gap-4 h-full">
 
             {/* SCAN BARCODE */}
             {!started && (
                 <div className="bg-white border border-gray-100 rounded-xl p-4">
-                    <p className="text-xs font-medium text-gray-500 mb-2">
-                        Scan barcode to add job
-                    </p>
+                    <p className="text-sm font-medium text-gray-500 mb-2">Scan barcode to add job</p>
                     <input
                         ref={inputRef}
                         type="text"
@@ -220,7 +247,7 @@ const MultiRegister = () => {
                         onBlur={() => setTimeout(() => inputRef.current?.focus(), 0)}
                         placeholder="Waiting for scanner..."
                         disabled={loading}
-                        className="w-full h-9 px-3 text-sm font-mono border border-gray-200 rounded-lg
+                        className="w-full h-10 px-3 text-base font-mono border border-gray-200 rounded-lg
                                    bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:opacity-50"
                     />
                 </div>
@@ -230,12 +257,12 @@ const MultiRegister = () => {
             <div className="flex-1 bg-white border border-gray-100 rounded-xl flex flex-col overflow-hidden min-h-0">
 
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <p className="text-xs font-medium text-gray-500">Jobs ({jobs.length})</p>
+                    <p className="text-sm font-medium text-gray-500">Jobs ({jobs.length})</p>
                     <div className="flex gap-2">
                         {(jobs.length > 0 || started) && (
                             <button
                                 onClick={cancelAll}
-                                className="h-8 px-3 text-xs rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                className="h-9 px-4 text-sm rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
                             >
                                 Cancel All
                             </button>
@@ -244,12 +271,12 @@ const MultiRegister = () => {
                             <button
                                 onClick={startRegistering}
                                 disabled={jobs.length === 0}
-                                className="h-8 px-4 text-xs rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                className="h-9 px-5 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                             >
                                 Start Registering →
                             </button>
                         ) : (
-                            <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-600">
+                            <span className="text-sm px-3 py-1 rounded-full bg-blue-50 text-blue-600">
                                 Scanning in progress
                             </span>
                         )}
@@ -257,11 +284,14 @@ const MultiRegister = () => {
                 </div>
 
                 <div className="overflow-y-auto flex-1">
-                    <table className="w-full text-sm">
+                    {jobs.length === 0 && (
+                        <p className="text-center py-12 text-gray-300 text-sm">No jobs added yet</p>
+                    )}
+                    <table className="w-full">
                         <thead className="bg-gray-50 sticky top-0">
                             <tr>
-                                {['', 'Job Ticket', 'Lot No.', 'Part No.', 'Machine', 'Qty', 'Pcs/Tray', 'Process', 'RW', 'Progress', ''].map((col,i) => (
-                                    <th key={i} className="text-left px-3 py-2 text-xs font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
+                                {['', 'Job Ticket', 'Lot No.', 'Part No.', 'Machine', 'Qty', 'Pcs/Tray', 'Process', 'RW', 'Progress', ''].map((col, i) => (
+                                    <th key={i} className="text-left px-3 py-2.5 text-sm font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
                                         {col}
                                     </th>
                                 ))}
@@ -279,46 +309,46 @@ const MultiRegister = () => {
                                             ${started && !isDone ? 'cursor-pointer' : ''}
                                             ${isActive ? 'bg-blue-50' : isDone ? 'bg-green-50' : 'hover:bg-gray-50'}`}
                                     >
-                                        <td className="px-3 py-3">
-                                            <span className={`block w-2 h-2 rounded-full ${isActive ? 'bg-blue-600' : isDone ? 'bg-green-500' : 'bg-gray-200'
+                                        <td className="px-3 py-3.5">
+                                            <span className={`block w-2.5 h-2.5 rounded-full ${isActive ? 'bg-blue-600' : isDone ? 'bg-green-500' : 'bg-gray-200'
                                                 }`} />
                                         </td>
-                                        <td className="px-3 py-3 font-mono text-xs font-medium text-gray-800">{job.job_ticket_no}</td>
-                                        <td className="px-3 py-3 font-mono text-xs text-gray-600">{job.lot_no}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-600">{job.part_no}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-500">{job.machine_no || '—'}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-500">{job.quantity?.toLocaleString()}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-500">{job.tray_qty?.toLocaleString() ?? '—'}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-500">{job.process || '—'}</td>
-                                        <td className="px-3 py-3 text-xs text-gray-500">{job.rw_diameter || '—'}</td>
-                                        <td className="px-3 py-3">
+                                        <td className="px-3 py-3.5 font-mono text-sm font-medium text-gray-800">{job.job_ticket_no}</td>
+                                        <td className="px-3 py-3.5 font-mono text-sm text-gray-600">{job.lot_no}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-600">{job.part_no}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.machine_no || '—'}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.quantity?.toLocaleString()}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.tray_qty?.toLocaleString() ?? '—'}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.process || '—'}</td>
+                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.rw_diameter || '—'}</td>
+                                        <td className="px-3 py-3.5">
                                             <div className="flex items-center gap-2">
-                                                <div className="w-24 bg-gray-100 rounded-full h-1.5">
+                                                <div className="w-28 bg-gray-100 rounded-full h-2">
                                                     <div
-                                                        className={`h-1.5 rounded-full transition-all ${isDone ? 'bg-green-500' : 'bg-blue-500'}`}
+                                                        className={`h-2 rounded-full transition-all ${isDone ? 'bg-green-500' : 'bg-blue-500'}`}
                                                         style={{ width: job.tray_counter > 0 ? `${(job.tray_done / job.tray_counter) * 100}%` : '0%' }}
                                                     />
                                                 </div>
-                                                <span className="text-xs text-gray-500 whitespace-nowrap">
+                                                <span className="text-sm text-gray-500 whitespace-nowrap">
                                                     {job.tray_done}/{job.tray_counter}
                                                 </span>
                                             </div>
                                         </td>
-                                        <td className="px-3 py-3">
+                                        <td className="px-3 py-3.5">
                                             {isActive && started && (
-                                                <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                                                <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">
                                                     ACTIVE
                                                 </span>
                                             )}
                                             {isDone && (
-                                                <span className="text-[10px] bg-green-600 text-white px-2 py-0.5 rounded-full">
+                                                <span className="text-xs bg-green-600 text-white px-2 py-1 rounded-full">
                                                     DONE
                                                 </span>
                                             )}
                                             {!started && (
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); removeJob(job.job_ticket_no); }}
-                                                    className="text-xs text-gray-300 hover:text-red-500"
+                                                    className="text-sm text-gray-300 hover:text-red-500"
                                                 >
                                                     ✕
                                                 </button>
@@ -335,10 +365,10 @@ const MultiRegister = () => {
             {/* SCAN TAG STATUS */}
             {started && (
                 <div className="bg-white border border-gray-100 rounded-xl px-4 py-3">
-                    <p className="text-xs text-gray-400 mb-1">
+                    <p className="text-sm text-gray-400 mb-1">
                         Scanning into: <span className="font-mono text-blue-600 font-medium">{activeJob || '—'}</span>
                     </p>
-                    <p className={`text-sm font-mono ${tagId ? 'text-blue-600' : 'text-gray-300'}`}>
+                    <p className={`text-base font-mono ${tagId ? 'text-blue-600' : 'text-gray-300'}`}>
                         {tagId || 'Waiting for tag...'}
                     </p>
                 </div>

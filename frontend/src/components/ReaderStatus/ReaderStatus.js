@@ -79,7 +79,7 @@ const ReaderStatus = () => {
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Status</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Type</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">IP Address</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Location</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Location/Machine</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-gray-400">Port</th>
             </tr>
           </thead>

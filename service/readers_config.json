@@ -51,5 +51,15 @@
         "location": "COM",
         "machine_parts": [],
         "machine_no": ""
+    },
+    {
+        "port": 8005,
+        "type": "register",
+        "enabled": false,
+        "ip": "192.168.1.101",
+        "power": 10,
+        "location": "REG2",
+        "machine_parts": [],
+        "min_qty": 0
     }
 ]

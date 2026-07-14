@@ -1,121 +1,123 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-    DashboardOutlined,
+    AppstoreOutlined,
     ScanOutlined,
-    SettingOutlined,
-    HistoryOutlined,
-    // LogoutOutlined,
-    MenuOutlined,
-    ControlOutlined,
-    ClearOutlined,
     ToolOutlined,
-    WifiOutlined,
-    SwapOutlined,
-    ApiOutlined,
+    HistoryOutlined,
+    SettingOutlined,
+    DashboardOutlined,
     SearchOutlined,
-    AlertOutlined,
+    EnvironmentOutlined,
+    MenuFoldOutlined,
+    MenuUnfoldOutlined,
 } from '@ant-design/icons';
-// import { getOperator, removeOperator } from '../../config/auth';
-
-const menuItems = [
-    // { label: 'Dashboard', path: '/dashboard', icon: <DashboardOutlined /> },
-    // { label: 'Register', path: '/register', icon: <ScanOutlined /> },
-    { label: 'Multi Register', path: '/multi-register', icon: <ScanOutlined /> },
-    { label: 'Machine Validation', path: '/machine-validation', icon: <SettingOutlined /> },
-    { label: 'Tag Search', path: '/tag-search', icon: <SearchOutlined /> },
-    { label: 'MBR Monitor', path: '/mbr-monitor', icon: <AlertOutlined /> },
-    { label: 'Location URL', path: '/location-reader', icon: <ApiOutlined /> },
-    { label: 'Reader Status', path: '/reader-status', icon: <WifiOutlined /> },
-    { label: 'Reader Config', path: '/reader-config', icon: <SwapOutlined /> },
-    { label: 'History', path: '/history', icon: <HistoryOutlined /> }
-    // { label: 'Pallet', path: '/pallet', icon: <ControlOutlined /> },
-    // { label: 'Washing', path: '/washing', icon: <ClearOutlined /> },
-    // { label: 'On Machine', path: '/on-machine', icon: <ToolOutlined /> },
-    
-];
 
 const Sidebar = () => {
+    const location = useLocation();
+    const navigate = useNavigate();
+    const [collapsed, setCollapsed] = useState(false);
 
-    // const operator  = getOperator();
-    const [open, setOpen] = useState(true);
+    const getSavedLocation = (type) => {
+        return localStorage.getItem(`rfid_location_${type}`) || '';
+    };
 
-    // const handleLogout = () => {
-    //     removeOperator();
-    //     window.location.reload();
-    // };
+    const buildPath = (basePath, type) => {
+        const loc = getSavedLocation(type);
+        return loc ? `${basePath}?location=${loc}` : basePath;
+    };
 
-    const linkClass = ({ isActive }) =>
-        `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors duration-150 ${isActive
-            ? 'bg-blue-50 text-blue-700 font-medium'
-            : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
-        }`;
+    const navItems = [
+        // {
+        //     label: 'Dashboard',
+        //     icon: <DashboardOutlined />,
+        //     path: '/dashboard',
+        // },
+        {
+            label: 'Location',
+            icon: <EnvironmentOutlined />,
+            path: '/location-reader',
+        },
+        {
+            label: 'Multi Register',
+            icon: <ScanOutlined />,
+            path: '/multi-register',
+            onClick: () => navigate(buildPath('/multi-register', 'register')),
+        },
+        {
+            label: 'Tag Search',
+            icon: <SearchOutlined />,
+            path: '/tag-search',
+            onClick: () => navigate(buildPath('/tag-search', 'register')),
+        },
+        {
+            label: 'Machine Validation',
+            icon: <ToolOutlined />,
+            path: '/machine-validation',
+            onClick: () => navigate(buildPath('/machine-validation', 'washing')),
+        },
+        {
+            label: 'MBR Monitor',
+            icon: <AppstoreOutlined />,
+            path: '/mbr-monitor',
+        },
+        {
+            label: 'Reader Status',
+            icon: <AppstoreOutlined />,
+            path: '/reader-status',
+        },
+        {
+            label: 'History',
+            icon: <HistoryOutlined />,
+            path: '/history',
+        },
+        {
+            label: 'Reader Config',
+            icon: <SettingOutlined />,
+            path: '/reader-config',
+        },
+    ];
+
+    const isActive = (path) => location.pathname === path;
 
     return (
-        <div className={`${open ? 'w-48' : 'w-12'} min-w-0 bg-white border-r border-gray-200 flex flex-col transition-all duration-200`}>
+        <div className={`${collapsed ? 'w-14' : 'w-52'} bg-white border-r border-gray-100 flex flex-col shrink-0 h-full transition-all duration-200`}>
 
-            {/* Logo + ปุ่ม toggle */}
-            <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
-                {open && (
-                    <div className="flex items-center gap-2">
-                        <ControlOutlined style={{ fontSize: '20px', color: 'black' }} />
-                        <span className="font-semibold text-sm text-gray-800">RFID System</span>
+            {/* Header */}
+            <div className="p-3 border-b border-gray-100 flex items-center justify-between">
+                {!collapsed && (
+                    <div>
+                        <p className="text-sm font-semibold text-gray-800">RFID System</p>
+                        <p className="text-xs text-gray-400">NHT Washing</p>
                     </div>
                 )}
                 <button
-                    onClick={() => setOpen(!open)}
-                    className="text-gray-400 hover:text-gray-600 p-1"
+                    onClick={() => setCollapsed(!collapsed)}
+                    className="text-gray-400 hover:text-gray-600 p-1 rounded"
                 >
-                    <MenuOutlined />
+                    {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
                 </button>
             </div>
 
-            {/* เมนู */}
-            <div className="flex-1 px-2 py-3">
-                {open && (
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest px-2 mb-1">
-                        Main
-                    </p>
-                )}
-                <nav className="flex flex-col gap-0.5">
-                    {menuItems.map((item) => (
-                        <NavLink key={item.path} to={item.path} className={linkClass}>
-                            <span className="shrink-0">{item.icon}</span>
-                            {open && <span>{item.label}</span>}
-                        </NavLink>
-                    ))}
-                </nav>
-            </div>
-
-            {/* Operator info + Logout
-            <div className="border-t border-gray-200 p-3 flex flex-col gap-2">
-                {open && (
-                    <div className="flex items-center gap-2 px-1">
-                        <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700
-                                        flex items-center justify-center text-xs font-semibold shrink-0">
-                            {operator?.name?.charAt(0).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                            <p className="text-xs font-medium text-gray-800 truncate">
-                                {operator?.name}
-                            </p>
-                            <p className="text-[10px] text-gray-400 truncate">
-                                {operator?.emp_code}
-                            </p>
-                        </div>
-                    </div>
-                )} */}
-
-            {/* <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm
-                               text-red-500 hover:bg-red-50 transition-colors w-full"
-                >
-                    <LogoutOutlined />
-                    {open && <span>Logout</span>}
-                </button> */}
-            {/* </div> */}
-
+            {/* Nav */}
+            <nav className="flex-1 overflow-y-auto p-2">
+                {navItems.map((item) => (
+                    <button
+                        key={item.path}
+                        onClick={item.onClick || (() => navigate(item.path))}
+                        title={collapsed ? item.label : ''}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-1
+                            ${collapsed ? 'justify-center' : ''}
+                            ${isActive(item.path)
+                                ? 'bg-blue-50 text-blue-600 font-medium'
+                                : 'text-gray-600 hover:bg-gray-50'
+                            }`}
+                    >
+                        <span className="text-base shrink-0">{item.icon}</span>
+                        {!collapsed && item.label}
+                    </button>
+                ))}
+            </nav>
         </div>
     );
 };

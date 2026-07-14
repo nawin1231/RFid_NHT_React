@@ -35,9 +35,11 @@ function App() {
           {/* เข้า "/" redirect ไป "/dashboard" อัตโนมัติ */}
           {/* <Route index element={<Navigate to="/dashboard" replace />} /> */}
           {/* <Route index element={<Navigate to="/register" replace />} /> */}
-          <Route index element={<Navigate to="/multi-register" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          {/* <Route index element={<Navigate to="/multi-register" replace />} /> */}
           {/* <Route path="register" element={<Register />} /> */}
+          <Route index element={<Navigate to="/location-reader" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="multi-register" element={<MultiRegister/>}/>
           <Route path="history" element={<History />} />
           <Route path="machine-validation" element={<MachineValidate />} />
           <Route path="washing" element={<Washing />} />
@@ -47,7 +49,6 @@ function App() {
           <Route path="location-reader" element={<Location/>}/>
           <Route path="tag-search" element={<TagSearch />}/>
           <Route path="mbr-monitor" element={<MbrMonitor/>} />
-          <Route path="multi-register" element={<MultiRegister/>}/>
           <Route path="reader-config" element={<ReaderConfig/>}/>
 
         </Route>

@@ -40,7 +40,7 @@ const Location = () => {
                 {/* REGISTER */}
                 <div className="bg-white border border-gray-100 rounded-xl overflow-hidden overflow-y-auto">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-                        <p className="text-xs font-medium text-gray-500">Register</p>
+                        <p className="text-xs font-medium text-gray-500">Multi Register/Tag Search</p>
                     </div>
                     <div className="overflow-y-auto max-h-96">
                         <table className="w-full text-sm">

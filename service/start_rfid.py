@@ -21,7 +21,7 @@ def kill_process_by_port(port):
                 pid = parts[-1]
                 subprocess.call(f"taskkill /PID {pid} /F",
                     shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(1)
+                time.sleep(3)
     except:
         pass
 

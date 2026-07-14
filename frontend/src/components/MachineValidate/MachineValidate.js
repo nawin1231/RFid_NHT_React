@@ -70,11 +70,16 @@ const MachineValidate = () => {
                 }
             } catch (err) {
                 console.log('poll error:', err.config?.url, err.message);
-             }
+            }
         }, 500);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location, deviceApi, deviceReady]);
+
+    useEffect(() => {
+        if (location) localStorage.setItem('rfid_location_washing', location);
+    }, [location]);
+    
     const fetchLotInfo = async (tag) => {
         setLoading(true);
         try {

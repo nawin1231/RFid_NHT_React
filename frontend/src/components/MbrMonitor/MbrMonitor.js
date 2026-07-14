@@ -24,9 +24,21 @@ const MbrMonitor = () => {
     // ถ้าไม่มีเครื่องไหน low → แสดง normal
     if (readers.length === 0) {
         return (
-            <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-4">
-                <span className="w-10 h-10 rounded-full bg-green-500" />
-                <p className="text-5xl font-medium text-gray-700">Machine Running Normal</p>
+            <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-6">
+                <div className="flex flex-col items-center justify-center h-full min-h-[60vh] gap-12">
+                    <div className="flex gap-6 h-28 items-end">
+                        <span className="w-20 h-20 rounded-full bg-green-500 animate-wave-bounce shrink-0" />
+                        <span
+                            className="w-20 h-20 rounded-full bg-green-500 animate-wave-bounce shrink-0"
+                            style={{ animationDelay: '0.15s' }}
+                        />
+                        <span
+                            className="w-20 h-20 rounded-full bg-green-500 animate-wave-bounce shrink-0"
+                            style={{ animationDelay: '0.3s' }}
+                        />
+                    </div>
+                    <p className="text-8xl font-medium text-gray-700">Machine Running Normal</p>
+                </div>
             </div>
         );
     }
