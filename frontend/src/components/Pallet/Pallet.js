@@ -12,7 +12,7 @@ const Pallet = () => {
             const res = await backendApi.get('/pallet-log');
             setLogs(res.data);
         } catch (err) {
-            console.log('error:', err.message);
+            //console.log('error:', err.message);
         }
     };
 
@@ -60,10 +60,10 @@ const Pallet = () => {
             if (result === 'OK') {
                 await fetchLogs();
             } else {
-                console.log('pallet skip:', tagId, result);
+                //console.log('pallet skip:', tagId, result);
             }
         } catch (err) {
-            console.log('error:', err.message);
+            //console.log('error:', err.message);
         }
     };
 

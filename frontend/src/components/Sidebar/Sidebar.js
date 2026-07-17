@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useAuth } from '../../config/auth';
 import {
     AppstoreOutlined,
     ScanOutlined,
@@ -17,6 +18,12 @@ const Sidebar = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const [collapsed, setCollapsed] = useState(false);
+    const { user, logout } = useAuth();
+
+    const handleLogout = () => {
+        logout();
+        navigate('/');
+    };
 
     const getSavedLocation = (type) => {
         return localStorage.getItem(`rfid_location_${type}`) || '';
@@ -62,20 +69,22 @@ const Sidebar = () => {
             path: '/mbr-monitor',
         },
         {
-            label: 'Reader Status',
-            icon: <AppstoreOutlined />,
-            path: '/reader-status',
-        },
-        {
-            label: 'History',
-            icon: <HistoryOutlined />,
-            path: '/history',
-        },
-        {
             label: 'Reader Config',
             icon: <SettingOutlined />,
             path: '/reader-config',
         },
+        ...(user ? [
+            {
+                label: 'Reader Status',
+                icon: <AppstoreOutlined />,
+                path: '/reader-status',
+            },
+            {
+                label: 'History',
+                icon: <HistoryOutlined />,
+                path: '/history',
+            },
+        ] : []),
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -118,7 +127,18 @@ const Sidebar = () => {
                     </button>
                 ))}
             </nav>
-        </div>
+            {user && !collapsed && (
+                <div className="p-3 border-t border-gray-100">
+                    <p className="text-xs text-gray-500 truncate">{user.eng_name}</p>
+                    <button
+                        onClick={handleLogout}
+                        className="text-xs text-red-400 hover:text-red-600 mt-1"
+                    >
+                        Sign out
+                    </button>
+                </div>
+            )}
+        </div >
     );
 };
 

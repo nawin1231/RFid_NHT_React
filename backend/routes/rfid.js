@@ -105,8 +105,8 @@ router.get('/status', async (req, res) => {
 //             .execute('Stored_tb_rfid_employee_login');
 
 //         const data = result.recordset[0] || result.recordsets?.[1]?.[0];
-//         // console.log('recordsets:', JSON.stringify(result.recordsets));
-//         // console.log('recordset:', JSON.stringify(result.recordset));
+//         // //console.log('recordsets:', JSON.stringify(result.recordsets));
+//         // //console.log('recordset:', JSON.stringify(result.recordset));
 
 //         if (data.result !== 'OK') {
 //             return res.json({ success: false, message: 'Employee not found!' });
@@ -155,7 +155,7 @@ router.post('/register-lot', async (req, res) => {
             .input('operator', sql.VarChar, operator)
             .execute('Stored_tb_rfid_lot_insert');
 
-        // console.log('result:', result.recordset);
+        // //console.log('result:', result.recordset);
 
         const data = result.recordset[0];
         res.json({
@@ -221,6 +221,19 @@ router.post('/pallet', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+router.post('/pallet-lot-out', async (req, res) => {
+    try {
+        const { barcode, location } = req.body;
+        axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
+            barcode,
+            location,
+        }).catch(err => console.error('[AS400] pallet-out error:', err.message));
+
+        res.json({ result: 'OK' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 //ข้อมูล log การเพิ่ม location pallet
 router.get('/pallet-log', async (req, res) => {
     try {
@@ -237,7 +250,7 @@ router.get('/pallet-log', async (req, res) => {
 router.post('/washing', async (req, res) => {
     try {
         const { tag_id, location, machine_no, process_code, process } = req.body;
-
+        //console.log('[AS400] washing req:', { tag_id, location });
         const pool = await poolPromise;
         const result = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
@@ -245,8 +258,25 @@ router.post('/washing', async (req, res) => {
             .input('process_code', sql.VarChar, process_code || null)
             .input('process', sql.VarChar, process || null)
             .execute('Stored_tb_rfid_tray_after_washing');
-
         const status = result.recordset[0]?.result ?? 'OK';
+        if (status === 'LOT_WASHED') {
+            const lotResult = await pool.request()
+                .input('tag_id', sql.VarChar, tag_id)
+                .execute('Stored_tb_rfid_lot_select_by_tagid');
+            const lotData = lotResult.recordset[0];
+
+            axios.post(`${AS400_INTERNAL_URL}/washing`, {
+                tag_id,
+                barcode: lotData?.barcode,
+                location: lotData?.location,
+                machine_no: machine_no,
+            }).catch(err => console.error('[AS400] washing error:', err.message));
+            axios.post(`${AS400_INTERNAL_URL}/on-machine-result`, {
+                barcode: lotData?.barcode,
+                machine_no: machine_no || '',
+                production_qty: lotData?.quantity,
+            }).catch(err => console.error('[AS400] on-machine-result error:', err.message));
+        }
         res.json({ result: status });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -335,7 +365,6 @@ router.post('/on-machine', async (req, res) => {
             .input('process_code', sql.VarChar, process_code || null)
             .input('process', sql.VarChar, process || null)
             .execute('Stored_tb_rfid_tray_on_machine');
-
         const status = result.recordset[0]?.result ?? 'OK';
         res.json({ result: status });
     } catch (err) {
@@ -380,15 +409,22 @@ router.post('/on-machine', async (req, res) => {
 router.post('/completed', async (req, res) => {
     try {
         const { tag_id } = req.body;
-
         const pool = await poolPromise;
+        const lotResult = await pool.request()
+            .input('tag_id', sql.VarChar, tag_id)
+            .execute('Stored_tb_rfid_completed_select_by_tagid');
+        const lotData = lotResult.recordset[0];
         const result = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
             .execute('Stored_tb_rfid_tray_completed');
-
         const status = result.recordset[0]?.result ?? 'OK';
+        if (status === 'LOT_COMPLETED') {
+            axios.post(`${AS400_INTERNAL_URL}/mbr-out`, {
+                barcode: lotData?.barcode,
+                machine_no: lotData?.machine_no || '',
+            }).catch(err => console.error('[AS400] mbr-out error:', err.message));
+        }
         res.json({ result: status });
-
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -473,6 +509,35 @@ router.post('/readers-restart/:port', async (req, res) => {
         res.json({ result: 'OK' });
     }
 });
+
+// Reader config Login
+router.post('/login', async (req, res) => {
+    try {
+        const { emp_id, password } = req.body;
+
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('emp_id', sql.VarChar, emp_id)
+            .input('password', sql.VarChar, password)
+            .execute('Stored_tb_rfid_login_check');
+
+        const status = result.recordset[0]?.result;
+
+        if (status === 'OK') {
+            res.json({
+                result: 'OK',
+                emp_id: result.recordset[0].emp_id,
+                eng_name: result.recordset[0].eng_name,
+                position: result.recordset[0].position,
+            });
+        } else {
+            res.json({ result: 'INVALID' });
+        }
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 //=========================================================
 // หน้า Location Json
 //=========================================================
@@ -500,9 +565,5 @@ router.put('/location-ports', (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-//=========================================================
-// หน้า As400 Log
-//=========================================================
-
 
 module.exports = router;

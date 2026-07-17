@@ -12,7 +12,7 @@ const OnMachine = () => {
       const res = await backendApi.get('/on-machine-log');
       setLogs(res.data);
     } catch (err) {
-      console.log('error:', err.message);
+      //console.log('error:', err.message);
     }
   };
 
@@ -68,10 +68,10 @@ const OnMachine = () => {
       if (result === 'OK') {
         await fetchLogs();
       } else {
-        console.log('on-machine skip:', tagId, result);
+        //console.log('on-machine skip:', tagId, result);
       }
     } catch (err) {
-      console.log('error:', err.message);
+      //console.log('error:', err.message);
     }
   };
 

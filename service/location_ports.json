@@ -6,9 +6,5 @@
     "W1": {
         "port": 8002,
         "type": "washing"
-    },
-    "REG2": {
-        "port": 8005,
-        "type": "register"
     }
 }

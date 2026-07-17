@@ -576,21 +576,18 @@ def restart_reader():
     return {"result": "OK"}
 
 # =============================================================================
-# MQTT — ส่งสัญญาณ alarm ไปหา PLC
+# MQTT ส่งสัญญาณ alarm ไปหา PLC
 # รอข้อมูลจากวิศวกร PLC: IP broker, topic, payload format
-# ติดตั้งก่อน: pip install paho-mqtt
+# ติดตั้งก่อน: pip install paho-mqtt --break-system-packages
 # =============================================================================
 
 # import paho.mqtt.client as mqtt
-#
-# MQTT_BROKER      = "192.168.1.xxx"  # IP ของ MQTT broker
-# MQTT_PORT        = 1883              # port มาตรฐานของ MQTT
-# MQTT_TOPIC       = "plc/alarm"      # topic ที่ PLC subscribe อยู่
-# MQTT_PAYLOAD_ON  = "1"              # PLC รับแล้วเปิดลำโพง
-# MQTT_PAYLOAD_OFF = "0"              # PLC รับแล้วปิดลำโพง
-#
+
+# MQTT_BROKER = "192.168.1.xxx"  # รอ IP จาก PLC
+# MQTT_PORT   = 1883
+# MQTT_TOPIC  = "plc/alarm"      # รอ topic จาก PLC
+
 # def publish_to_plc(payload: str):
-#     """ส่ง MQTT message ไปหา PLC"""
 #     try:
 #         client = mqtt.Client()
 #         client.connect(MQTT_BROKER, MQTT_PORT, keepalive=5)
@@ -599,15 +596,16 @@ def restart_reader():
 #         print(f"[MQTT] Published: {payload} -> {MQTT_TOPIC}")
 #     except Exception as ex:
 #         print(f"[MQTT] Error: {ex}")
-#
+
 # def start_alarm():
 #     global alarm_active
 #     if not alarm_active:
 #         alarm_active = True
-#         threading.Thread(target=alarm_loop, daemon=True).start()
-#         publish_to_plc(MQTT_PAYLOAD_ON)
-#
+#         publish_to_plc("1")
+#         print(f"[{time.strftime('%H:%M:%S')}] [PLC] alarm ON")
+
 # def stop_alarm():
 #     global alarm_active
 #     alarm_active = False
-#     publish_to_plc(MQTT_PAYLOAD_OFF)
+#     publish_to_plc("0")
+#     print(f"[{time.strftime('%H:%M:%S')}] [PLC] alarm OFF")    

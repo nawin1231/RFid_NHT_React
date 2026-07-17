@@ -69,7 +69,7 @@ const MachineValidate = () => {
                     await fetchLotInfo(res.data.tag_id);
                 }
             } catch (err) {
-                console.log('poll error:', err.config?.url, err.message);
+                //console.log('poll error:', err.config?.url, err.message);
             }
         }, 500);
         return () => clearInterval(interval);
@@ -135,18 +135,18 @@ const MachineValidate = () => {
             // เรียก part convert
             const convertRes = await backendApi.get(`/part-convert/${partNo}`);
             const converts = convertRes.data;
-            console.log('part_no ที่ใช้หา:', partNo);
-            console.log('converts ทั้งหมด:', converts.length, converts.slice(0, 3));
+            //console.log('part_no ที่ใช้หา:', partNo);
+            //console.log('converts ทั้งหมด:', converts.length, converts.slice(0, 3));
             // filter partConvertFrom ตรงกับ part_no
             const matchedConverts = converts.filter(c => c.partConvertFrom === partNo);
-            console.log('matchedConverts:', matchedConverts);
+            //console.log('matchedConverts:', matchedConverts);
             const convertedParts = matchedConverts.map(c => c.partConvertTo);
             // ถ้าไม่มี convert ใช้ part_no เดิม
             const partsToMatch = convertedParts.length > 0 ? convertedParts : [partNo];
-            console.log('partsToMatch:', partsToMatch);
+            //console.log('partsToMatch:', partsToMatch);
             // เรียก machine API
             const res = await backendApi.get('/machine-list');
-            console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
+            //console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
             const matched = res.data.filter(item => {
                 const partMatch = partsToMatch.some(p =>
                     item.innerRingPart === p ||
@@ -154,7 +154,7 @@ const MachineValidate = () => {
                 );
                 return partMatch;
             });
-            console.log('matched:', matched);
+            //console.log('matched:', matched);
 
 
             setMachineList(matched);

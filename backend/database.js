@@ -25,7 +25,7 @@ const dbConfig = {
 const poolPromise = new sql.ConnectionPool(dbConfig)
     .connect()
     .then(pool => {
-        console.log('Connected database successfully!');
+        //console.log('Connected database successfully!');
         return pool;
     })
     .catch(err => {

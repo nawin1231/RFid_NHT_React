@@ -93,7 +93,7 @@ const History = () => {
       'Tray Counter': row.tray_counter || '',
       'Tray Done': row.tray_done || '',
       'Location': row.location || '',
-      'Created Date': row.update_at || '',
+      'Created Date': row.updated_at || '',
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -349,7 +349,7 @@ const History = () => {
 
                     {/* Update Date */}
                     <td className="px-3 py-2 text-gray-400 whitespace-nowrap">
-                      {formatDate(row.update_at)}
+                      {formatDate(row.updated_at)}
                     </td>
 
                   </tr>

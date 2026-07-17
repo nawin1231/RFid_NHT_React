@@ -1,35 +1,27 @@
-// // sessionStorage หายเมื่อปิด browser ต้อง login ใหม่ทุกครั้ง
+import React, { createContext, useContext, useState } from 'react';
+const Auth = createContext(null);
 
-// // เก็บข้อมูล operator หลัง login สำเร็จ
-// export const saveOperator = (data) => {
-//     const payload = {
-//         ...data,expiredAt: Date.now() + (8 * 60 * 60 * 1000) // 8 ชั่วโมง
-//     };
-//     sessionStorage.setItem('operator', JSON.stringify(payload));
-// };
+export const AuthProvider = ({ children }) => {
+    const [user, setUser] = useState(() => {
+        const saved = sessionStorage.getItem('rfid_user');
+        return saved ? JSON.parse(saved) : null;
+    });
 
-// // ดึงข้อมูล operator ปัจจุบัน
-// export const getOperator = () => {
-//     const data = sessionStorage.getItem('operator');
-//     return data ? JSON.parse(data) : null;
-// };
+    const login = (userData) => {
+        sessionStorage.setItem('rfid_user', JSON.stringify(userData));
+        setUser(userData);
+    };
 
-// // ลบข้อมูล operator ตอน logout
-// export const removeOperator = () => {
-//     sessionStorage.removeItem('operator');
-// };
+    const logout = () => {
+        sessionStorage.removeItem('rfid_user');
+        setUser(null);
+    };
 
-// // เช็คว่า login อยู่ไหม
-// export const isLoggedIn = () => {
-//     const data = getOperator();
-//     if (!data) return false;
+    return (
+        <Auth.Provider value={{ user, login, logout }}>
+            {children}
+        </Auth.Provider>
+    );
+};
 
-//     // ถ้าเลยเวลาที่กำหนด → ลบทิ้ง
-//     if (Date.now() > data.expiredAt) {
-//         removeOperator();
-//         return false;
-//     }
-
-//     return true;
-    
-// };
+export const useAuth = () => useContext(Auth);

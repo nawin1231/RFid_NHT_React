@@ -12,7 +12,7 @@ const Washing = () => {
             const res = await backendApi.get('/washing-log');
             setLogs(res.data);
         } catch (err) {
-            console.log('error:', err.message);
+            //console.log('error:', err.message);
         }
     };
 
@@ -56,13 +56,13 @@ const Washing = () => {
             if (result === 'OK') {
                 await fetchLogs();
             } else if (result === 'PALLET_REQUIRED') {
-                console.log('washing skip: pallet required', tagId);
+                //console.log('washing skip: pallet required', tagId);
             } else {
-                console.log('washing skip:', tagId, result);
+                //console.log('washing skip:', tagId, result);
             }
 
         } catch (err) {
-            console.log('error:', err.message);
+            //console.log('error:', err.message);
         }
     };
 

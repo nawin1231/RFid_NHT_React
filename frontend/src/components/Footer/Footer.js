@@ -15,7 +15,7 @@ const Footer = () => {
           Dx Staff
         </a>
         <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-        <span>Version : Mockup</span>
+        <span>Version : TEST</span>
       </div>
 
     </footer>
