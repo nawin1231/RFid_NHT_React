@@ -4,7 +4,7 @@ Set WshShell = CreateObject("WScript.Shell")
     ' WshShell.Run "cmd /c cd /d D:\RFid_NHT_React\backend && node server.js", 1, False
     
     ' Python readers
-    WshShell.Run "cmd /c cd /d D:\RFid_NHT_React\service && python start_rfid.py", 1, False
+    WshShell.Run "cmd /k cd /d D:\RFid_NHT_WASHING\service && python start_rfid.py", 1, False
     
     ' React Frontend
     ' WshShell.Run "cmd /c cd /d D:\RFid_NHT_React\frontend && npm start", 0, False

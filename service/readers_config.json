@@ -2,7 +2,7 @@
     {
         "port": 8000,
         "type": "register",
-        "enabled": true,
+        "enabled": false,
         "ip": "192.168.1.101",
         "power": 10,
         "location": "REG1",
@@ -15,7 +15,7 @@
         "enabled": false,
         "ip": "192.168.1.101",
         "power": 10,
-        "location": "W4",
+        "location": "W1",
         "machine_parts": [],
         "machine_no": ""
     },
@@ -37,7 +37,7 @@
         "power": 10,
         "location": "FL-59",
         "machine_parts": [
-            "2SF-608XZZ-NTP93"
+            "2SFR-830X10ZZMT"
         ],
         "min_qty": 1000,
         "machine_no": "FF-21"
@@ -45,7 +45,7 @@
     {
         "port": 8004,
         "type": "completed",
-        "enabled": false,
+        "enabled": true,
         "ip": "192.168.1.101",
         "power": 10,
         "location": "COM",

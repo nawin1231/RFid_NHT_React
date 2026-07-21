@@ -61,23 +61,27 @@ router.post('/pallet-in', async (req, res) => {
         const logId = await logToDB(pool, 'PALLET_IN', 'movement', payload);
 
         // ส่ง API ไป AS400
-        // try {
-        //     await axios.post(`${AS400_URL}/movement`, {
-        //         trackId: payload.track_id,
-        //         machineNo: payload.machine_no,
-        //         movementAction: payload.movement_action,
-        //         jobtag: payload.jobtag,
-        //         process: payload.process,
-        //         location: payload.location,
-        //         timestamp: new Date().toISOString(),
-        //     }, {
-        //         headers: { Authorization: AS400_MOVEMENT_TOKEN  },
-        //         timeout: 5000,
-        //     });
-        //     await updateStatus(pool, logId, 'SUCCESS');
-        // } catch (apiErr) {
-        //     await updateStatus(pool, logId, 'ERROR', apiErr.message);
-        // }
+        try {
+            await axios.post(`${AS400_MOVEMENT_URL}`, [{
+                trackId: payload.track_id,
+                machineNo: payload.machine_no,
+                movementAction: payload.movement_action,
+                jobtag: payload.jobtag,
+                process: payload.process,
+                location: payload.location,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: AS400_MOVEMENT_TOKEN },
+                timeout: 3000,
+            });
+            await updateStatus(pool, logId, 'SUCCESS');
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            await updateStatus(pool, logId,
+                isTimeout ? 'SUCCESS' : 'ERROR',
+                apiErr.message
+            );
+        }
 
         res.json({ result: 'OK' });
     } catch (err) {
@@ -104,23 +108,27 @@ router.post('/pallet-out', async (req, res) => {
 
         const logId = await logToDB(pool, 'PALLET_OUT', 'movement', payload);
 
-        // try {
-        //     await axios.post(`${AS400_URL}/movement`, {
-        //         trackId: payload.track_id,
-        //         machineNo: payload.machine_no,
-        //         movementAction: payload.movement_action,
-        //         jobtag: payload.jobtag,
-        //         process: payload.process,
-        //         location: payload.location,
-        //         timestamp: new Date().toISOString(),
-        //     }, {
-        //         headers: { Authorization: AS400_MOVEMENT_TOKEN  },
-        //         timeout: 5000,
-        //     });
-        //     await updateStatus(pool, logId, 'SUCCESS');
-        // } catch (apiErr) {
-        //     await updateStatus(pool, logId, 'ERROR', apiErr.message);
-        // }
+        try {
+            await axios.post(`${AS400_MOVEMENT_URL}`, [{
+                trackId: payload.track_id,
+                machineNo: payload.machine_no,
+                movementAction: payload.movement_action,
+                jobtag: payload.jobtag,
+                process: payload.process,
+                location: payload.location,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: AS400_MOVEMENT_TOKEN },
+                timeout: 3000,
+            });
+            await updateStatus(pool, logId, 'SUCCESS');
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            await updateStatus(pool, logId,
+                isTimeout ? 'SUCCESS' : 'ERROR',
+                apiErr.message
+            );
+        }
 
         res.json({ result: 'OK' });
     } catch (err) {
@@ -147,23 +155,27 @@ router.post('/washing', async (req, res) => {
         //console.log('[washing] payload:', payload);
         const logId = await logToDB(pool, 'WASHING_RUN', 'movement', payload);
 
-        // try {
-        //     await axios.post(`${AS400_URL}/movement`, {
-        //         trackId: payload.track_id,
-        //         machineNo: payload.machine_no,
-        //         movementAction: payload.movement_action,
-        //         jobtag: payload.jobtag,
-        //         process: payload.process,
-        //         location: payload.location,
-        //         timestamp: new Date().toISOString(),
-        //     }, {
-        //         headers: { Authorization: AS400_MOVEMENT_TOKEN  },
-        //         timeout: 5000,
-        //     });
-        //     await updateStatus(pool, logId, 'SUCCESS');
-        // } catch (apiErr) {
-        //     await updateStatus(pool, logId, 'ERROR', apiErr.message);
-        // }
+        try {
+            await axios.post(`${AS400_MOVEMENT_URL}`, [{
+                trackId: payload.track_id,
+                machineNo: payload.machine_no,
+                movementAction: payload.movement_action,
+                jobtag: payload.jobtag,
+                process: payload.process,
+                location: payload.location,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: AS400_MOVEMENT_TOKEN },
+                timeout: 3000,
+            });
+            await updateStatus(pool, logId, 'SUCCESS');
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            await updateStatus(pool, logId,
+                isTimeout ? 'SUCCESS' : 'ERROR',
+                apiErr.message
+            );
+        }
 
         res.json({ result: 'OK' });
     } catch (err) {
@@ -187,26 +199,30 @@ router.post('/on-machine-result', async (req, res) => {
             location: 'RUN',
             production_qty: production_qty,
         };
-
+        console.log('[on-machine-result] machine_no:', payload.machine_no);
         const logId = await logToDB(pool, 'WASHING_RESULT', 'production-result', payload);
 
-        // try {
-        //     await axios.post(`${AS400_URL}/production-result`, {
-        //         trackId: payload.track_id,
-        //         jobtagIn: payload.jobtag,
-        //         machineNo: payload.machine_no,
-        //         processCode: payload.process,
-        //         productionQty: payload.production_qty,
-        //         ngQty: 0,
-        //         timestamp: new Date().toISOString(),
-        //     }, {
-        //         headers: { Authorization: AS400_PRODUCTION_RESULT_TOKEN  },
-        //         timeout: 5000,
-        //     });
-        //     await updateStatus(pool, logId, 'SUCCESS');
-        // } catch (apiErr) {
-        //     await updateStatus(pool, logId, 'ERROR', apiErr.message);
-        // }
+        try {
+            await axios.post(`${AS400_PRODUCTION_RESULT_URL}`, [{
+                trackId: payload.track_id,
+                jobtagIn: payload.jobtag,
+                machineNo: payload.machine_no,
+                processCode: payload.process,
+                productionQty: payload.production_qty,
+                ngQty: 0,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: AS400_PRODUCTION_RESULT_TOKEN },
+                timeout: 3000,
+            });
+            await updateStatus(pool, logId, 'SUCCESS');
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            await updateStatus(pool, logId,
+                isTimeout ? 'SUCCESS' : 'ERROR',
+                apiErr.message
+            );
+        }
 
         res.json({ result: 'OK' });
     } catch (err) {
@@ -230,26 +246,30 @@ router.post('/mbr-out', async (req, res) => {
             location: 'BF',
             production_qty: null,
         };
-
+        console.log('[mbr-out] machine_no:', payload.machine_no);
         const logId = await logToDB(pool, 'MBR_OUT', 'movement', payload);
 
-        // try {
-        //     await axios.post(`${AS400_URL}/movement`, {
-        //         trackId: payload.track_id,
-        //         machineNo: payload.machine_no,
-        //         movementAction: payload.movement_action,
-        //         jobtag: payload.jobtag,
-        //         process: payload.process,
-        //         location: payload.location,
-        //         timestamp: new Date().toISOString(),
-        //     }, {
-        //         headers: { Authorization: AS400_MOVEMENT_TOKEN },
-        //         timeout: 5000,
-        //     });
-        //     await updateStatus(pool, logId, 'SUCCESS');
-        // } catch (apiErr) {
-        //     await updateStatus(pool, logId, 'ERROR', apiErr.message);
-        // }
+        try {
+            await axios.post(`${AS400_MOVEMENT_URL}`, [{
+                trackId: payload.track_id,
+                machineNo: payload.machine_no,
+                movementAction: payload.movement_action,
+                jobtag: payload.jobtag,
+                process: payload.process,
+                location: payload.location,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: AS400_MOVEMENT_TOKEN },
+                timeout: 3000,
+            });
+            await updateStatus(pool, logId, 'SUCCESS');
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            await updateStatus(pool, logId,
+                isTimeout ? 'SUCCESS' : 'ERROR',
+                apiErr.message
+            );
+        }
 
         res.json({ result: 'OK' });
     } catch (err) {

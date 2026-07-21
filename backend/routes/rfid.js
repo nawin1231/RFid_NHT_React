@@ -265,13 +265,13 @@ router.post('/washing', async (req, res) => {
                 .execute('Stored_tb_rfid_lot_select_by_tagid');
             const lotData = lotResult.recordset[0];
 
-            axios.post(`${AS400_INTERNAL_URL}/washing`, {
+            await axios.post(`${AS400_INTERNAL_URL}/washing`, {
                 tag_id,
                 barcode: lotData?.barcode,
                 location: lotData?.location,
                 machine_no: machine_no,
             }).catch(err => console.error('[AS400] washing error:', err.message));
-            axios.post(`${AS400_INTERNAL_URL}/on-machine-result`, {
+            await axios.post(`${AS400_INTERNAL_URL}/on-machine-result`, {
                 barcode: lotData?.barcode,
                 machine_no: machine_no || '',
                 production_qty: lotData?.quantity,

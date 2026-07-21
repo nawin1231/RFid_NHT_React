@@ -313,7 +313,7 @@ const MultiRegister = () => {
                                             <span className={`block w-2.5 h-2.5 rounded-full ${isActive ? 'bg-blue-600' : isDone ? 'bg-green-500' : 'bg-gray-200'
                                                 }`} />
                                         </td>
-                                        <td className="px-3 py-3.5 font-mono text-sm font-medium text-gray-800">{job.job_ticket_no}</td>
+                                        <td className="px-3 py-3.5 font-mono text-sm font-medium text-blue-600">{job.job_ticket_no}</td>
                                         <td className="px-3 py-3.5 font-mono text-sm text-gray-600">{job.lot_no}</td>
                                         <td className="px-3 py-3.5 text-sm text-gray-600">{job.part_no}</td>
                                         <td className="px-3 py-3.5 text-sm text-gray-500">{job.machine_no || '—'}</td>
@@ -329,7 +329,7 @@ const MultiRegister = () => {
                                                         style={{ width: job.tray_counter > 0 ? `${(job.tray_done / job.tray_counter) * 100}%` : '0%' }}
                                                     />
                                                 </div>
-                                                <span className="text-sm text-gray-500 whitespace-nowrap">
+                                                <span className="text-sm text-blue-600 whitespace-nowrap">
                                                     {job.tray_done}/{job.tray_counter}
                                                 </span>
                                             </div>
