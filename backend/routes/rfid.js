@@ -21,6 +21,18 @@ router.get('/job-ticket/:barcode', async (req, res) => {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
 });
+// Mock Job Ticket API
+// router.get('/job-ticket/:barcode', async (req, res) => {
+//     try {
+//         const pool = await poolPromise;
+//         const result = await pool.request()
+//             .input('barcode', sql.VarChar, req.params.barcode)
+//             .execute('Stored_tb_mock_job_ticket_select');
+//         res.json(result.recordset[0] || null);
+//     } catch (err) {
+//         res.status(500).json({ error: err.message });
+//     }
+// });
 
 // Machine API
 const MACHINE_URL = process.env.MACHINE_URL;
@@ -35,6 +47,17 @@ router.get('/machine-list', async (req, res) => {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
 });
+// Mock Machine API
+// router.get('/machine-list',async (req,res) => {
+//     try{
+//         const pool = await poolPromise;
+//         const result = await pool.request()
+//             .execute('Stored_tb_mock_machine_select');
+//         res.json(result.recordset);
+//     } catch (err) {
+//         res.status(500).json({ error: err.message });
+//     }
+// });
 // Part Convert API
 const PART_CONVERT_URL = process.env.PART_CONVERT_URL;
 const PART_CONVERT_TOKEN = process.env.PART_CONVERT_TOKEN;
@@ -49,8 +72,20 @@ router.get('/part-convert/:partNo', async (req, res) => {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
 });
+// Mock Part Convert API
+// router.get('/part-convert/:partNo', async (req, res) => {
+//     try {
+//         const pool = await poolPromise;
+//         const result = await pool.request()
+//             .input('part_no_from', sql.VarChar, req.params.partNo)
+//             .execute('Stored_tb_mock_part_convert_select');
+//         res.json(result.recordset);
+//     } catch (err) {
+//         res.status(500).json({ error: err.message });
+//     }
+// });
 
-// เช็คสถานะ Reader จาก Python ว่า Connected หรือ Disconnected
+// เช็คสถานะ Reader จาก Python ว่า Connected หรือ Disconnected (main_dll)
 router.get('/status', async (req, res) => {
     try {
         const readers = JSON.parse(
@@ -82,6 +117,15 @@ router.get('/status', async (req, res) => {
         res.json({ connected: false, readers: [] });
     }
 });
+
+// router.get('/status', async (req, res) => { (main_multi)
+//     try {
+//         const result = await axios.get('http://localhost:8000/status/all', { timeout: 2000 });
+//         res.json(result.data);
+//     } catch (err) {
+//         res.json({ connected: false, readers: [] });
+//     }
+// });
 
 // // ดึง tag id จาก Python
 // router.get('/new-tag', async (req, res) => {
@@ -354,23 +398,72 @@ router.get('/lot-by-tag/:tagId', async (req, res) => {
 
 // update machine_no + บันทึก log
 // UPDATE on_machine ทีละ tray
+// router.post('/on-machine', async (req, res) => {
+//     try {
+//         const { tag_id, machine_no, process_code, process } = req.body;
+//         const pool = await poolPromise;
+//         const result = await pool.request()
+//             .input('tag_id', sql.VarChar, tag_id)
+//             .input('machine_no', sql.VarChar, machine_no || null)
+//             .input('process_code', sql.VarChar, process_code || null)
+//             .input('process', sql.VarChar, process || null)
+//             .execute('Stored_tb_rfid_tray_on_machine');
+//         const status = result.recordset[0]?.result ?? 'OK';
+//         res.json({ result: status });
+//     } catch (err) {
+//         res.status(500).json({ error: err.message });
+//     }
+// });
+
 router.post('/on-machine', async (req, res) => {
     try {
         const { tag_id, machine_no, process_code, process } = req.body;
-
         const pool = await poolPromise;
-        const result = await pool.request()
+        const lotResult = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
-            .input('machine_no', sql.VarChar, machine_no || null)
+            .execute('Stored_tb_rfid_lot_select_by_tagid');
+        const lotData = lotResult.recordset[0];
+        const result = await pool.request()
+            .input('tag_id',       sql.VarChar, tag_id)
+            .input('machine_no',   sql.VarChar, machine_no   || null)
             .input('process_code', sql.VarChar, process_code || null)
-            .input('process', sql.VarChar, process || null)
+            .input('process',      sql.VarChar, process      || null)
             .execute('Stored_tb_rfid_tray_on_machine');
+
         const status = result.recordset[0]?.result ?? 'OK';
+        if (status === 'LOT_ON_MACHINE') {
+            axios.post(`${AS400_INTERNAL_URL}/on-machine-in`, {
+                barcode:        lotData?.barcode,
+                machine_no:     machine_no || '',
+                production_qty: lotData?.quantity,
+            }).catch(err => console.error('[AS400] on-machine-in error:', err.message));
+        }
+
         res.json({ result: status });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
+
+router.post('/on-machine-out', async (req, res) => {
+    try {
+        const { tag_id, barcode, qty, machine_no } = req.body;
+        const pool = await poolPromise;
+
+        axios.post(`${AS400_INTERNAL_URL}/on-machine-out`, {
+            tag_id,
+            qty,
+            barcode,
+            machine_no,
+        }).catch(err => console.error('[AS400] on-machine-out error:', err.message));
+
+        res.json({ result: 'OK' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+
 // router.post('/on-machine', async (req, res) => {
 //     try {
 //         const { tag_id, machine_no } = req.body;
@@ -418,12 +511,6 @@ router.post('/completed', async (req, res) => {
             .input('tag_id', sql.VarChar, tag_id)
             .execute('Stored_tb_rfid_tray_completed');
         const status = result.recordset[0]?.result ?? 'OK';
-        if (status === 'LOT_COMPLETED') {
-            axios.post(`${AS400_INTERNAL_URL}/mbr-out`, {
-                barcode: lotData?.barcode,
-                machine_no: lotData?.machine_no || '',
-            }).catch(err => console.error('[AS400] mbr-out error:', err.message));
-        }
         res.json({ result: status });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -500,7 +587,7 @@ router.put('/readers-config', (req, res) => {
     }
 });
 
-// restart Python reader
+// restart Python reader (main_dll)
 router.post('/readers-restart/:port', async (req, res) => {
     try {
         await axios.get(`http://localhost:${req.params.port}/restart`, { timeout: 3000 });
@@ -509,6 +596,21 @@ router.post('/readers-restart/:port', async (req, res) => {
         res.json({ result: 'OK' });
     }
 });
+
+// router.post('/readers-restart/:port', async (req, res) => { (main_multi)
+//     try {
+//         const readers = JSON.parse(
+//             fs.readFileSync(path.join(__dirname, '../../service/readers_config.json'), 'utf-8')
+//         );
+//         const enabledReaders = readers.filter(r => r.enabled !== false);
+//         const index = enabledReaders.findIndex(r => r.port === parseInt(req.params.port));
+//         if (index === -1) return res.json({ result: 'NOT_FOUND' });
+//         await axios.post(`http://localhost:8000/restart/${index}`, {}, { timeout: 3000 });
+//         res.json({ result: 'OK' });
+//     } catch {
+//         res.json({ result: 'OK' });
+//     }
+// });
 
 // Reader config Login
 router.post('/login', async (req, res) => {

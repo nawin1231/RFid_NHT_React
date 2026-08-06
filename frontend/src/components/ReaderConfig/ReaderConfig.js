@@ -91,14 +91,34 @@ const ReaderConfig = () => {
     } finally {
       setTimeout(() => setRestarting(null), 3000);
     }
-  };
+  };//(main_dll)
+
+  // const restartReader = async (index) => { (main_multi)
+  //   setRestarting(index);
+  //   try {
+  //     await backendApi.post(`/readers-restart/${index}`);
+  //     Swal.fire({ icon: 'success', title: `Reader :${index} restarting...`, timer: 1500, showConfirmButton: false });
+  //   } catch {
+  //     Swal.fire({ icon: 'error', title: 'Restart failed', timer: 1500, showConfirmButton: false });
+  //   } finally {
+  //     setTimeout(() => setRestarting(null), 3000);
+  //   }
+  // };
 
   const addLocationPort = () => {
     if (!newLocKey || !newLocPort) return;
     setLocationPorts(prev => ({
       ...prev,
       [newLocKey.toUpperCase()]: { port: parseInt(newLocPort), type: newLocType }
-    }));
+    })); //(main_dll)
+
+    // const addLocationPort = () => { (main_multi)
+    //   if (!newLocKey || !newLocPort) return;
+    //   setLocationPorts(prev => ({
+    //     ...prev,
+    //     [newLocKey.toUpperCase()]: { index: parseInt(newLocPort), type: newLocType }
+    //   }));
+
     setNewLocKey('');
     setNewLocPort('');
     setLocEdited(true);
@@ -164,7 +184,7 @@ const ReaderConfig = () => {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  {['Port', 'On', 'Type', 'IP Address', 'Power', 'Location', 'Parts', 'MinQTY', 'Action'].map(col => (
+                  {['ID', 'On', 'Type', 'IP Address', 'Power', 'Location', 'Parts', 'MinQTY', 'Action'].map(col => (
                     <th key={col} className="text-left px-2 py-2 text-xs font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
                       {col}
                     </th>
@@ -256,9 +276,12 @@ const ReaderConfig = () => {
                         <button
                           onClick={() => restartReader(r.port)}
                           disabled={restarting === r.port}
+                          // onClick={() => restartReader(i)}
+                          // disabled={restarting === i}
                           className="h-7 px-2 text-xs rounded-lg bg-yellow-50 text-yellow-600 border border-yellow-200 hover:bg-yellow-100 disabled:opacity-50"
                         >
                           {restarting === r.port ? '...' : '↺'}
+                          {/* {restarting === i ? '...' : '↺'} */}
                         </button>
                         <button
                           onClick={() => removeReader(i)}
@@ -313,7 +336,8 @@ const ReaderConfig = () => {
               <div key={key} className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-50 hover:bg-gray-50">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-mono font-medium text-gray-700">{key}</p>
-                  <p className="text-[10px] text-gray-400">{val.type} · port {val.port}</p>
+                  <p className="text-[10px] text-gray-400">{val.type} · port {val.port}</p> {/* (main_dll) */}
+                  {/* <p className="text-[10px] text-gray-400">{val.type} · index {val.index}</p> (main_multi) */}
                 </div>
                 <button
                   onClick={() => removeLocationPort(key)}
@@ -336,13 +360,41 @@ const ReaderConfig = () => {
               className="h-8 px-2 text-xs border border-gray-200 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-blue-400"
             />
             <div className="flex gap-2">
-              <input
-                type="number"
+              <select
                 value={newLocPort}
                 onChange={e => setNewLocPort(e.target.value)}
-                placeholder="Port"
-                className="h-8 px-2 text-xs font-mono border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
-              />
+                className="h-8 px-2 text-xs border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              >
+                <option value="">Select Reader</option>
+                {readers
+                  .filter(r => r.enabled !== false && r.type === newLocType)
+                  .map(r => (
+                    <option key={r.port} value={r.port}>
+                      {r.port} — {r.location} ({r.ip})
+                    </option>
+                  ))
+                }
+              </select>
+              {/* <select
+                value={newLocPort}
+                onChange={e => setNewLocPort(e.target.value)}
+                className="h-8 px-2 text-xs border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+              >
+                <option value="">Select Reader</option>
+                {readers
+                  .filter(r => r.enabled !== false && r.type === newLocType)
+                  .map(r => {
+                    const idx = readers
+                      .filter(x => x.enabled !== false)
+                      .indexOf(r);
+                    return (
+                      <option key={idx} value={idx}>
+                        {idx} — {r.location} ({r.ip})
+                      </option>
+                    );
+                  })
+                }
+              </select> */}
               <select
                 value={newLocType}
                 onChange={e => setNewLocType(e.target.value)}

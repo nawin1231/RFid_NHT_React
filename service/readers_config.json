@@ -2,9 +2,9 @@
     {
         "port": 8000,
         "type": "register",
-        "enabled": false,
+        "enabled": true,
         "ip": "192.168.1.101",
-        "power": 10,
+        "power": 20,
         "location": "REG1",
         "machine_parts": [],
         "machine_no": ""
@@ -14,7 +14,7 @@
         "type": "pallet",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 10,
+        "power": 20,
         "location": "W1",
         "machine_parts": [],
         "machine_no": ""
@@ -24,7 +24,7 @@
         "type": "washing",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 10,
+        "power": 20,
         "location": "WS-03",
         "machine_parts": [],
         "machine_no": "WS-03"
@@ -34,7 +34,7 @@
         "type": "on_machine",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 10,
+        "power": 20,
         "location": "FL-59",
         "machine_parts": [
             "2SFR-830X10ZZMT"
@@ -45,9 +45,9 @@
     {
         "port": 8004,
         "type": "completed",
-        "enabled": true,
+        "enabled": false,
         "ip": "192.168.1.101",
-        "power": 10,
+        "power": 20,
         "location": "COM",
         "machine_parts": [],
         "machine_no": ""

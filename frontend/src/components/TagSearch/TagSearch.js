@@ -25,8 +25,10 @@ const TagSearch = () => {
     const [selected, setSelected] = useState(null);
     const [manualTag, setManualTag] = useState('');
 
-    // โหลด location-ports
-    useEffect(() => {
+    const [readerIndex, setReaderIndex] = useState(0);
+
+    // โหลด location-ports 
+    useEffect(() => { //(main_dll)
         setDeviceReady(false);
         backendApi.get('/location-ports').then(res => {
             const ports = res.data;
@@ -41,16 +43,27 @@ const TagSearch = () => {
             setDeviceApi(() => pythonApi);
             setDeviceReady(true);
         });
+        // backendApi.get('/location-ports').then(res => { (main_multi)
+        //     const ports = res.data;
+        //     const config = location ? ports[location] : null;
+        //     setReaderIndex(config?.index ?? 0);
+        //     setDeviceReady(true);
+        // }).catch(() => {
+        //     setReaderIndex(0);
+        //     setDeviceReady(true);
+        // });
     }, [location]);
 
     // poll /tags ทุก 1 วิ
     useEffect(() => {
-        if (!deviceReady || !deviceApi) return;
+        if (!deviceReady || !deviceApi) return; //(main_dll)
+        // if (!deviceReady) return; (main_multi)
         const interval = setInterval(async () => {
             try {
-                const res = await deviceApi.get('/tags');
+                const res = await deviceApi.get('/tags');//(main_dll)
+                // const res = await pythonApi.get(`/tags/${readerIndex}`); (main_multi)
                 const list = res.data.tags || [];
-                
+
                 setTags(prev => {
                     const combined = [...new Set([...prev, ...list])];
                     return combined;
@@ -71,7 +84,8 @@ const TagSearch = () => {
         }, 1000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [deviceApi, deviceReady]);
+    // }, [deviceApi, deviceReady]);
+    }, [deviceReady]);
 
     useEffect(() => {
         if (location) localStorage.setItem('rfid_location_register', location);

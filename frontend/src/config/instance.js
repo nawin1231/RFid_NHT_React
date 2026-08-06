@@ -12,7 +12,7 @@ export const pythonApi = axios.create({
     baseURL: API.PYTHON,
 });
 
-// Washing API
+// Washing API (main_dll)
 export const washingApi = axios.create({
     baseURL: API.WASHING,
 });

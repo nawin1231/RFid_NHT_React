@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { backendApi, washingApi } from '../../config/instance';
+// import { backendApi, pythonApi } from '../../config/instance';
 import { useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import axios from 'axios';
@@ -40,10 +41,12 @@ const MachineValidate = () => {
     const [loading, setLoading] = useState(false);
     const [trayDone, setTrayDone] = useState(0);
 
+    const [readerIndex, setReaderIndex] = useState(0);
+
     // รันตอน location เปลี่ยน port
     useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => {
+        backendApi.get('/location-ports').then(res => { //(main_dll)
             const ports = res.data;
             const config = location ? ports[location] : null;
             if (config) {
@@ -56,14 +59,26 @@ const MachineValidate = () => {
             setDeviceApi(() => washingApi);
             setDeviceReady(true);
         });
+        // backendApi.get('/location-ports').then(res => { //(main_multi)
+        //     const ports = res.data;
+        //     const config = location ? ports[location] : null;
+        //     setReaderIndex(config?.index ?? 0);
+        //     setDeviceReady(true);
+        // }).catch(() => {
+        //     setReaderIndex(0);
+        //     setDeviceReady(true);
+        // });
     }, [location]);
 
     // รันเมื่อ deviceApi พร้อมแล้ว
     useEffect(() => {
-        if (!deviceReady || !deviceApi) return;
+        if (!deviceReady || !deviceApi) return; //(main_dll)
+        // if (!deviceReady) return; (main_multi)
         const interval = setInterval(async () => {
             try {
-                const res = await deviceApi.get('/new-tag/washing');
+                console.log('polling index:', readerIndex);
+                const res = await deviceApi.get('/new-tag/washing'); //(main_dll)
+                // const res = await pythonApi.get(`/new-tag-washing/${readerIndex}`); //(main_multi)
                 if (res.data.tag_id) {
                     await new Promise(r => setTimeout(r, 1000));
                     await fetchLotInfo(res.data.tag_id);
@@ -74,12 +89,13 @@ const MachineValidate = () => {
         }, 500);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [location, deviceApi, deviceReady]);
+    }, [location, deviceApi, deviceReady]); //(main_dll)
+    // }, [location, deviceReady, readerIndex]); (main_multi)
 
     useEffect(() => {
         if (location) localStorage.setItem('rfid_location_washing', location);
     }, [location]);
-    
+
     const fetchLotInfo = async (tag) => {
         setLoading(true);
         try {
@@ -147,13 +163,22 @@ const MachineValidate = () => {
             // เรียก machine API
             const res = await backendApi.get('/machine-list');
             //console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
+            const rpFromLot = extractRp(rwDiameter);
             const matched = res.data.filter(item => {
                 const partMatch = partsToMatch.some(p =>
                     item.innerRingPart === p ||
                     item.outerRingPart === p
                 );
-                return partMatch;
+                const rpMatch = rpFromLot ? extractRp(item.rp) === rpFromLot : true;
+                return partMatch && rpMatch;
             });
+            // const matched = res.data.filter(item => {
+            //     const partMatch = partsToMatch.some(p =>
+            //         item.innerRingPart === p ||
+            //         item.outerRingPart === p
+            //     );
+            //     return partMatch;
+            // });
             //console.log('matched:', matched);
 
 

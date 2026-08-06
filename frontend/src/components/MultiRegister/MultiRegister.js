@@ -29,11 +29,13 @@ const MultiRegister = () => {
     const [activeJob, setActiveJob] = useState(null);
     const [tagId, setTagId] = useState('');
 
+    const [readerIndex, setReaderIndex] = useState(0);
+
     const inputRef = useRef(null);
 
     useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => {
+        backendApi.get('/location-ports').then(res => { //(main_dll)
             const ports = res.data;
             const config = location ? ports[location] : null;
             if (config) {
@@ -46,6 +48,15 @@ const MultiRegister = () => {
             setDeviceApi(() => pythonApi);
             setDeviceReady(true);
         });
+        // backendApi.get('/location-ports').then(res => { (main_multi)
+        //     const ports = res.data;
+        //     const config = location ? ports[location] : null;
+        //     setReaderIndex(config?.index ?? 0);
+        //     setDeviceReady(true);
+        // }).catch(() => {
+        //     setReaderIndex(0);
+        //     setDeviceReady(true);
+        // });
     }, [location]);
 
     // focus input
@@ -59,15 +70,18 @@ const MultiRegister = () => {
 
     // poll tag จาก reader
     useEffect(() => {
-        if (!started || !deviceReady || !deviceApi) return;
+        if (!started || !deviceReady || !deviceApi) return; //(main_dll)
+        // if (!started || !deviceReady) return; (main_multi)
         const interval = setInterval(async () => {
             try {
-                const res = await deviceApi.get('/new-tag');
+                const res = await deviceApi.get('/new-tag'); //(main_dll)
+                // const res = await pythonApi.get(`/new-tag/${readerIndex}`);
                 if (res.data.tag_id) setTagId(res.data.tag_id);
             } catch { }
         }, 300);
         return () => clearInterval(interval);
-    }, [started, deviceApi, deviceReady]);
+    }, [started, deviceApi, deviceReady]); //(main_dll)
+    // }, [started, deviceReady, readerIndex]); (main_multi)
 
     // ถ้าได้ tag ใหม่ ต้องมี active job ก่อน
     useEffect(() => {
@@ -110,6 +124,18 @@ const MultiRegister = () => {
                     rw_diameter: data.rw_diameter,
                     process_date: data.date,
                     quantity: data.quantity,
+                    // barcode: data.jobTicketNo,
+                    // lot_no: data.lotNo,
+                    // material_no: data.materialLot,
+                    // part_no: data.partNo,
+                    // machine_no: data.machineNumber,
+                    // process_code: data.processCode,
+                    // process: data.process,
+                    // coil: data.coil,
+                    // ir_diameter: data.idDiameter,
+                    // rw_diameter: data.rwDiameter,
+                    // process_date: data.date,
+                    // quantity: data.quantity,
                 });
 
                 const result = regRes.data.result;
@@ -125,6 +151,16 @@ const MultiRegister = () => {
                         tray_counter: regRes.data.tray_counter,
                         tray_qty: regRes.data.tray_qty,
                         tray_done: regRes.data.tray_done || 0,
+                        // job_ticket_no: data.jobTicketNo,
+                        // lot_no: data.lotNo,
+                        // part_no: data.partNo,
+                        // machine_no: data.machineNumber,
+                        // process: data.process,
+                        // rw_diameter: data.rwDiameter,
+                        // quantity: data.quantity,
+                        // tray_counter: regRes.data.tray_counter,
+                        // tray_qty: regRes.data.tray_qty,
+                        // tray_done: regRes.data.tray_done || 0,
                     }]);
                     showAlert(result === 'RESUME' ? 'Resumed!' : 'Job added!', 'success');
                 } else if (result === 'BARCODE_IN_USE') {
@@ -160,7 +196,8 @@ const MultiRegister = () => {
         setStarted(true);
         setActiveJob(jobs[0].job_ticket_no);
         setTagId('');
-        deviceApi?.get('/new-tag').catch(() => { });
+        deviceApi?.get('/new-tag').catch(() => { }); //(main_dll)
+        // pythonApi.get(`/new-tag/${readerIndex}`)
         showAlert('Started! Scan tags now', 'success');
     };
 

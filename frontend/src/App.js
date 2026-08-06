@@ -5,9 +5,6 @@ import Dashboard from './components/Dashboard/Dashboard';
 // import Register from './components/Register/Register';
 import History from './components/History/History';
 import MachineValidate from './components/MachineValidate/MachineValidate';
-import Washing from './components/Washing/Washing'
-import OnMachine from './components/OnMachine/OnMachine';
-import Pallet from './components/Pallet/Pallet';
 import ReaderStatus from './components/ReaderStatus/ReaderStatus'
 import Location from './components/Location/Location';
 import TagSearch from './components/TagSearch/TagSearch';
@@ -45,9 +42,6 @@ function App() {
               <SecureRoute><History /></SecureRoute>
             } />
             <Route path="machine-validation" element={<MachineValidate />} />
-            <Route path="washing" element={<Washing />} />
-            <Route path="on-machine" element={<OnMachine />} />
-            <Route path="pallet" element={<Pallet />} />
             <Route path="reader-status" element={
               <SecureRoute><ReaderStatus /></SecureRoute>
             } />

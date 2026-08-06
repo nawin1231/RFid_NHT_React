@@ -12,6 +12,8 @@ import {
     EnvironmentOutlined,
     MenuFoldOutlined,
     MenuUnfoldOutlined,
+    WifiOutlined,
+    TagOutlined,
 } from '@ant-design/icons';
 
 const Sidebar = () => {
@@ -42,7 +44,7 @@ const Sidebar = () => {
         // },
         {
             label: 'Location',
-            icon: <EnvironmentOutlined />,
+            icon: <TagOutlined />,
             path: '/location-reader',
         },
         {
@@ -76,7 +78,7 @@ const Sidebar = () => {
         ...(user ? [
             {
                 label: 'Reader Status',
-                icon: <AppstoreOutlined />,
+                icon: <WifiOutlined />,
                 path: '/reader-status',
             },
             {
@@ -97,7 +99,7 @@ const Sidebar = () => {
                 {!collapsed && (
                     <div>
                         <p className="text-sm font-semibold text-gray-800">RFID System</p>
-                        <p className="text-xs text-gray-400">NHT Washing</p>
+                        <p className="text-xs text-gray-400">Washing</p>
                     </div>
                 )}
                 <button
