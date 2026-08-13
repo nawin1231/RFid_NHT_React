@@ -37,11 +37,11 @@ const Sidebar = () => {
     };
 
     const navItems = [
-        // {
-        //     label: 'Dashboard',
-        //     icon: <DashboardOutlined />,
-        //     path: '/dashboard',
-        // },
+        {
+            label: 'Dashboard',
+            icon: <DashboardOutlined />,
+            path: '/dashboard',
+        },
         {
             label: 'Location',
             icon: <TagOutlined />,
@@ -76,11 +76,11 @@ const Sidebar = () => {
             path: '/reader-config',
         },
         ...(user ? [
-            {
-                label: 'Reader Status',
-                icon: <WifiOutlined />,
-                path: '/reader-status',
-            },
+            // {
+            //     label: 'Reader Status',
+            //     icon: <WifiOutlined />,
+            //     path: '/reader-status',
+            // },
             {
                 label: 'History',
                 icon: <HistoryOutlined />,

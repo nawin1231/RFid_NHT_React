@@ -7,16 +7,40 @@ const fs = require('fs');
 const path = require('path');
 const AS400_INTERNAL_URL = process.env.AS400_INTERNAL_URL || 'http://localhost:5000/api/as400';
 
+// ---- API CACHE ----
+// เก็บ cache แยกตาม key เพื่อไม่ให้ปนกัน
+const apiCache = new Map()
+// helper ดึงจาก cache หรือเรียก API ใหม่ถ้าหมดอายุ
+const withCache = async (key, ttlMs, fetchFn) => {
+    const cached = apiCache.get(key)
+    if (cached && Date.now() - cached.timestamp < ttlMs) {
+        return cached.data  // คืน cache เลย
+    }
+    const data = await fetchFn()
+    apiCache.set(key, { data, timestamp: Date.now() })
+    return data
+}
+
+const TTL_5MIN = 5 * 60 * 1000
+const TTL_30MIN = 30 * 60 * 1000
+
 
 // Job Ticket API
 const JOB_TICKET_URL = process.env.JOB_TICKET_URL;
 const JOB_TICKET_TOKEN = process.env.JOB_TICKET_TOKEN;
 router.get('/job-ticket/:barcode', async (req, res) => {
     try {
-        const result = await axios.get(`${JOB_TICKET_URL}/${req.params.barcode}`, {
-            headers: { Authorization: JOB_TICKET_TOKEN }
-        });
-        res.json(result.data);
+        const data = await withCache(
+            `job-ticket:${req.params.barcode}`,
+            TTL_5MIN,
+            async () => {
+                const result = await axios.get(`${JOB_TICKET_URL}/${req.params.barcode}`, {
+                    headers: { Authorization: JOB_TICKET_TOKEN }
+                });
+                return result.data;
+            }
+        );
+        res.json(data);
     } catch (err) {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
@@ -39,10 +63,17 @@ const MACHINE_URL = process.env.MACHINE_URL;
 const MACHINE_TOKEN = process.env.MACHINE_TOKEN;
 router.get('/machine-list', async (req, res) => {
     try {
-        const result = await axios.get(`${MACHINE_URL}/N?processes=1520,1512`, {
-            headers: { Authorization: MACHINE_TOKEN }
-        });
-        res.json(result.data);
+        const data = await withCache(
+            'machine-list',
+            TTL_30MIN,
+            async () => {
+                const result = await axios.get(`${MACHINE_URL}/N?processes=1520,1512`, {
+                    headers: { Authorization: MACHINE_TOKEN }
+                });
+                return result.data;
+            }
+        );
+        res.json(data);
     } catch (err) {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
@@ -62,12 +93,19 @@ router.get('/machine-list', async (req, res) => {
 const PART_CONVERT_URL = process.env.PART_CONVERT_URL;
 const PART_CONVERT_TOKEN = process.env.PART_CONVERT_TOKEN;
 router.get('/part-convert/:partNo', async (req, res) => {
-    const fullUrl = `${PART_CONVERT_URL}&PartConvertFrom=${req.params.partNo}`;
     try {
-        const result = await axios.get(fullUrl, {
-            headers: { Authorization: PART_CONVERT_TOKEN }
-        });
-        res.json(result.data);
+        const data = await withCache(
+            `part-convert:${req.params.partNo}`,
+            TTL_30MIN,
+            async () => {
+                const fullUrl = `${PART_CONVERT_URL}&PartConvertFrom=${req.params.partNo}`;
+                const result = await axios.get(fullUrl, {
+                    headers: { Authorization: PART_CONVERT_TOKEN }
+                });
+                return result.data;
+            }
+        );
+        res.json(data);
     } catch (err) {
         res.status(err.response?.status || 500).json({ error: err.message });
     }
@@ -424,17 +462,17 @@ router.post('/on-machine', async (req, res) => {
             .execute('Stored_tb_rfid_lot_select_by_tagid');
         const lotData = lotResult.recordset[0];
         const result = await pool.request()
-            .input('tag_id',       sql.VarChar, tag_id)
-            .input('machine_no',   sql.VarChar, machine_no   || null)
+            .input('tag_id', sql.VarChar, tag_id)
+            .input('machine_no', sql.VarChar, machine_no || null)
             .input('process_code', sql.VarChar, process_code || null)
-            .input('process',      sql.VarChar, process      || null)
+            .input('process', sql.VarChar, process || null)
             .execute('Stored_tb_rfid_tray_on_machine');
 
         const status = result.recordset[0]?.result ?? 'OK';
         if (status === 'LOT_ON_MACHINE') {
             axios.post(`${AS400_INTERNAL_URL}/on-machine-in`, {
-                barcode:        lotData?.barcode,
-                machine_no:     machine_no || '',
+                barcode: lotData?.barcode,
+                machine_no: machine_no || '',
                 production_qty: lotData?.quantity,
             }).catch(err => console.error('[AS400] on-machine-in error:', err.message));
         }
@@ -543,20 +581,47 @@ router.get('/tray_count/:barcode', async (req, res) => {
 });
 
 // Dashboard
+// router.get('/dashboard', async (req, res) => {
+//     try {
+//         const pool = await poolPromise;
+//         const result = await pool.request()
+//             .execute('Stored_tb_rfid_dashboard');
+//         res.json({
+//             summary: result.recordsets[0][0],
+//             lots: result.recordsets[1],
+//         });
+
+//     } catch (err) {
+//         res.status(500).json({ error: err.message });
+//     }
+// });
+
 router.get('/dashboard', async (req, res) => {
     try {
-        const pool = await poolPromise;
-        const result = await pool.request()
-            .execute('Stored_tb_rfid_dashboard');
+        const { date_from = null, date_to = null } = req.query
+
+        const pool = await poolPromise
+
+        // Monitor: เรียก SP แรก ได้ 2 recordset — summary และ lot list
+        const monitor = await pool.request()
+            .execute('Stored_tb_rfid_dashboard_monitor')
+
+        // History: เรียก SP สอง รับ date range
+        const history = await pool.request()
+            .input('date_from', date_from)
+            .input('date_to', date_to)
+            .execute('Stored_tb_rfid_dashboard_history')
+
         res.json({
-            summary: result.recordsets[0][0],
-            lots: result.recordsets[1],
-        });
+            summary: monitor.recordsets[0], // นับ lot แยก sub_process
+            lots: monitor.recordsets[1], // lot list ทั้งหมด Ongoing
+            history: history.recordsets[0], // log history
+        })
 
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message })
     }
-});
+})
 
 
 //=========================================================

@@ -1,0 +1,25 @@
+========================================
+  NHT Washing — Load Test Report
+  13/8/2569 08:25:46
+========================================
+
+📊 RESULT: ✅ SERVER รับได้ — ไม่แตก
+
+--- Server Spec (ขณะ export) ---
+CPU               : 2 Core  (Load: 100%)
+RAM               : 7.2 GB used / 16 GB total
+
+--- k6 Metrics (400 VUs / Reader) ---
+Avg Response Time : 327.46 ms
+p(95) Response    : 685.28 ms     (threshold < 2000ms)
+Error Rate        : 0.00%         (threshold < 1%)
+Total Iterations  : 4499
+Failed Requests   : 0              (threshold < 5)
+Checks Passed     : 9096/9096 (100.0%)
+
+--- Thresholds ---
+p(95) < 2000ms    : ✅ PASS
+Error Rate < 1%   : ✅ PASS
+Failed < 5        : ✅ PASS
+
+========================================

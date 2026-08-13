@@ -19,6 +19,7 @@
     "mssql": "^12.5.5",
     "sequelize": "^6.37.8",
     "sequelize-msnodesqlv8": "^0.2.6-beta.8",
+    "systeminformation": "^5.33.1",
     "tedious": "^19.2.1"
   },
   "devDependencies": {
