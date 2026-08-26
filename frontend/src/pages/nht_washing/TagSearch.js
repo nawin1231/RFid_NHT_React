@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { backendApi, pythonApi } from '../../config/instance';
-import API from '../../config/constance';
+import API from '../../config/constances';
 import axios from 'axios';
 
 const SUB_PROCESS_COLOR = {

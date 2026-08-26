@@ -1,4 +1,25 @@
-# .gitignore
+# Node
 node_modules/
 .env
 backend/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# DLL / Binary
+SID_U861.dll
+
+# Load test
+k6.exe
+load_test.js
+load_test_report.txt
+result.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+frontend/build/

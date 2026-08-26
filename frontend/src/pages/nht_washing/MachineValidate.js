@@ -88,9 +88,8 @@ const MachineValidate = () => {
                     await fetchLotInfo(res.data.tag_id);
                 }
             } catch (err) {
-                //console.log('poll error:', err.config?.url, err.message);
             }
-        }, 500);
+        }, 1000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location, deviceApi, deviceReady]); //(main_dll)
@@ -155,18 +154,13 @@ const MachineValidate = () => {
             // เรียก part convert
             const convertRes = await backendApi.get(`/part-convert/${partNo}`);
             const converts = convertRes.data;
-            //console.log('part_no ที่ใช้หา:', partNo);
-            //console.log('converts ทั้งหมด:', converts.length, converts.slice(0, 3));
             // filter partConvertFrom ตรงกับ part_no
             const matchedConverts = converts.filter(c => c.partConvertFrom === partNo);
-            //console.log('matchedConverts:', matchedConverts);
             const convertedParts = matchedConverts.map(c => c.partConvertTo);
             // ถ้าไม่มี convert ใช้ part_no เดิม
             const partsToMatch = convertedParts.length > 0 ? convertedParts : [partNo];
-            //console.log('partsToMatch:', partsToMatch);
             // เรียก machine API
             const res = await backendApi.get('/machine-list');
-            //console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
             // const rpFromLot = extractRp(rwDiameter);
             // const matched = res.data.filter(item => {
             //     const partMatch = partsToMatch.some(p =>
@@ -183,7 +177,6 @@ const MachineValidate = () => {
                 );
                 return partMatch;
             });
-            //console.log('matched:', matched);
 
 
             setMachineList(matched)
@@ -286,8 +279,8 @@ const MachineValidate = () => {
                                         'Group Part',
                                         'Bearing No.',
                                         'Specification',
-                                        'InnerRing Part',
                                         'OuterRing Part',
+                                        'InnerRing Part',
                                         'RP'
                                     ].map(col => (
                                         <th key={col} className="text-left px-4 py-3 text-xs font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
@@ -315,8 +308,8 @@ const MachineValidate = () => {
                                         <td className="px-4 py-4 text-gray-700">{m.groupPart || '—'}</td>
                                         <td className="px-4 py-4 text-gray-700">{m.bearingNo || '—'}</td>
                                         <td className="px-4 py-4 text-gray-500">{m.specification || '—'}</td>
-                                        <td className="px-4 py-4 text-gray-500">{m.innerRingPart || '—'}</td>
                                         <td className="px-4 py-4 text-gray-500">{m.outerRingPart || '—'}</td>
+                                        <td className="px-4 py-4 text-gray-500">{m.innerRingPart || '—'}</td>
                                         <td className="px-4 py-4">
                                             <span className="text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
                                                 {extractRp(m.rp) || '—'}

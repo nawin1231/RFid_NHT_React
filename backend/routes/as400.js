@@ -3,10 +3,10 @@ const router = express.Router();
 const { sql, poolPromise } = require('../database');
 const axios = require('axios');
 
-// const AS400_MOVEMENT_URL = process.env.AS400_MOVEMENT_URL;
-// const AS400_MOVEMENT_TOKEN = process.env.AS400_MOVEMENT_TOKEN;
-// const AS400_PRODUCTION_RESULT_URL = process.env.AS400_PRODUCTION_RESULT_URL;
-// const AS400_PRODUCTION_RESULT_TOKEN = process.env.AS400_PRODUCTION_RESULT_TOKEN;
+const AS400_MOVEMENT_URL = process.env.AS400_MOVEMENT_URL;
+const AS400_PRODUCTION_RESULT_URL = process.env.AS400_PRODUCTION_RESULT_URL;
+const API_CHECKING_URL = process.env.API_CHECKING_URL;
+const API_TOKEN = process.env.API_TOKEN;
 
 // trackId format: process+location_DDMMYYYY_jobtag
 const generateTrackId = (process, location, jobtag) => {
@@ -45,26 +45,26 @@ const updateStatus = async (pool, id, status, errorMsg = null, responseMsg = nul
 
 // ส่ง movement API + update status
 const sendMovement = async (pool, logId, body) => {
-    // try {
-    //     const axiosRes = await axios.post(`${AS400_MOVEMENT_URL}`, [body], {
-    //         headers: { Authorization: AS400_MOVEMENT_TOKEN },
-    //         timeout: 3000,
-    //     });
-    //     // 207 = processed with some errors
-    //     if (axiosRes.status === 207) {
-    //         await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
-    //     } else {
-    //         await updateStatus(pool, logId, 'SUCCESS', null, JSON.stringify(axiosRes.data));
-    //     }
-    // } catch (apiErr) {
-    //     const isTimeout = apiErr.code === 'ECONNABORTED';
-    //     const errMsg = isTimeout ? null : (apiErr.response?.data
-    //         ? JSON.stringify(apiErr.response.data)
-    //         : apiErr.message);
-    //     const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
-    //     await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
-    // }
-    await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
+    try {
+        const axiosRes = await axios.post(`${AS400_MOVEMENT_URL}`, [body], {
+            headers: { Authorization: API_TOKEN },
+            timeout: 3000,
+        });
+        // 207 = processed with some errors
+        if (axiosRes.status === 207) {
+            await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
+        } else {
+            await updateStatus(pool, logId, 'SUCCESS', null, JSON.stringify(axiosRes.data));
+        }
+    } catch (apiErr) {
+        const isTimeout = apiErr.code === 'ECONNABORTED';
+        const errMsg = isTimeout ? null : (apiErr.response?.data
+            ? JSON.stringify(apiErr.response.data)
+            : apiErr.message);
+        const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+        await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
+    }
+    // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
 };
 
 // A1 — PALLET IN (MOVE_IN 1201 BFW)
@@ -138,14 +138,14 @@ router.post('/pallet-out', async (req, res) => {
 // A3 — WASHING RUN (MOVE_IN 1201 RUN)
 router.post('/washing', async (req, res) => {
     try {
-        const { barcode, location, machine_no } = req.body;
+        const { barcode, location, machine_no, process_code } = req.body;
         const pool = await poolPromise;
         const payload = {
-            track_id: generateTrackId('1201', 'RUN', barcode),
+            track_id: generateTrackId(process_code || '1201', 'RUN', barcode),
             machine_no: machine_no || '',
             movement_action: 'MOVE_IN',
             jobtag: barcode,
-            process: '1201',
+            process: process_code || '1201',
             location: 'RUN',
             production_qty: null,
         };
@@ -167,7 +167,7 @@ router.post('/washing', async (req, res) => {
 });
 
 // A4 — WASHING RESULT (production-result 1201)
-router.post('/on-machine-result', async (req, res) => {
+router.post('/washing-result', async (req, res) => {
     try {
         const { barcode, machine_no, production_qty } = req.body;
         const pool = await poolPromise;
@@ -181,37 +181,36 @@ router.post('/on-machine-result', async (req, res) => {
             production_qty: production_qty,
         };
         const logId = await logToDB(pool, 'WASHING_RESULT', 'production-result', payload);
-        // try {
-        //     const axiosRes = await axios.post(`${AS400_PRODUCTION_RESULT_URL}`, [{
-        //         trackId: payload.track_id,
-        //         jobtagIn: payload.jobtag,
-        //         machineNo: payload.machine_no,
-        //         processCode: payload.process,
-        //         productionQty: payload.production_qty,
-        //         ngQty: 0,
-        //         timestamp: new Date().toISOString(),
-        //     }], {
-        //         headers: { Authorization: AS400_PRODUCTION_RESULT_TOKEN },
-        //         timeout: 3000,
-        //     });
-        //     console.log('[on-machine-result] payload:', payload);
-        //     if (axiosRes.status === 207) {
-        //         await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
-        //     } else {
-        //         await updateStatus(pool, logId, 'SUCCESS', null, JSON.stringify(axiosRes.data));
-        //     }
-        // } catch (apiErr) {
-        //     const isTimeout = apiErr.code === 'ECONNABORTED';
-        //     const errMsg = isTimeout ? null : (apiErr.response?.data
-        //         ? JSON.stringify(apiErr.response.data)
-        //         : apiErr.message);
-        //     const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
-        //     await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
-        // }
-        await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
+        try {
+            const axiosRes = await axios.post(`${AS400_PRODUCTION_RESULT_URL}`, [{
+                trackId: payload.track_id,
+                jobtagIn: payload.jobtag,
+                machineNo: payload.machine_no,
+                processCode: payload.process,
+                productionQty: payload.production_qty,
+                ngQty: 0,
+                timestamp: new Date().toISOString(),
+            }], {
+                headers: { Authorization: API_TOKEN },
+                timeout: 3000,
+            });
+            if (axiosRes.status === 207) {
+                await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
+            } else {
+                await updateStatus(pool, logId, 'SUCCESS', null, JSON.stringify(axiosRes.data));
+            }
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            const errMsg = isTimeout ? null : (apiErr.response?.data
+                ? JSON.stringify(apiErr.response.data)
+                : apiErr.message);
+            const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+            await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
+        }
+        // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] on-machine-result error:', err.message);
+        console.error('[AS400] washing-result error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -219,14 +218,14 @@ router.post('/on-machine-result', async (req, res) => {
 // A5 — ON MACHINE IN (MOVE_IN 1520 BF) ทีละ tag
 router.post('/on-machine-in', async (req, res) => {
     try {
-        const { barcode, machine_no, production_qty } = req.body;
+        const { barcode, machine_no, production_qty, process_code } = req.body;
         const pool = await poolPromise;
         const payload = {
-            track_id: generateTrackId('1520', 'BF', barcode),
+            track_id: generateTrackId(process_code || '1520', 'BF', barcode),
             machine_no: machine_no || '',
             movement_action: 'MOVE_IN',
             jobtag: barcode,
-            process: '1520',
+            process: process_code || '1520',
             location: 'BF',
             production_qty: production_qty,
         };
@@ -244,6 +243,55 @@ router.post('/on-machine-in', async (req, res) => {
         res.json({ result: 'OK' });
     } catch (err) {
         console.error('[AS400] on-machine-in error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// A6 — CHECKING
+router.post('/checking', async (req, res) => {
+    try {
+        const { barcode, machine_no, wos_barcode, jobtag, check_result, material_type } = req.body;
+        const pool = await poolPromise;
+        const payload = {
+            wosBarcode: wos_barcode,
+            machine: machine_no,
+            checkBy: 'RFID',
+            jobtagList: [{
+                jobtag: jobtag,
+                checkResult: check_result,
+                materialType: material_type,
+            }]
+        };
+        const logId = await logToDB(pool, 'CHECKING', 'checking', {
+            track_id: generateTrackId('1520', 'BF', jobtag),
+            machine_no,
+            jobtag,
+            process: '1520',
+            location: 'BF',
+        });
+        try {
+            const axiosRes = await axios.post(`${API_CHECKING_URL}`, payload, {
+                headers: { Authorization: API_TOKEN },
+                timeout: 3000,
+            });
+            if (axiosRes.status === 207) {
+                await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
+            } else {
+                await updateStatus(pool, logId, 'SUCCESS', null, JSON.stringify(axiosRes.data));
+            }
+        } catch (apiErr) {
+            const isTimeout = apiErr.code === 'ECONNABORTED';
+            const errMsg = isTimeout ? null : (apiErr.response?.data
+                ? JSON.stringify(apiErr.response.data)
+                : apiErr.message);
+            const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+            await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
+        }
+        // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
+        // console.log('[A6 CHECKING] mock payload:', JSON.stringify(payload, null, 2));
+        res.json({ result: 'OK' });
+    } catch (err) {
+        console.error('[AS400] checking error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -280,4 +328,50 @@ router.post('/on-machine-out', async (req, res) => {
     }
 });
 
-module.exports = router;
+// Auto retry — ดึง ERROR records แล้วส่งใหม่
+const retryErrors = async () => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .execute('Stored_tb_rfid_as400_log_get_errors');
+
+        for (const row of result.recordset) {
+
+            if (row.api_type === 'movement') {
+                await sendMovement(pool, row.id, {
+                    trackId: row.track_id,
+                    machineNo: row.machine_no || '',
+                    movementAction: row.movement_action,
+                    jobtag: row.jobtag,
+                    process: row.process,
+                    location: row.location,
+                    timestamp: new Date().toISOString(),
+                });
+            } else if (row.api_type === 'production-result') {
+                try {
+                    const axiosRes = await axios.post(`${AS400_PRODUCTION_RESULT_URL}`, [{
+                        trackId: row.track_id,
+                        jobtagIn: row.jobtag,
+                        machineNo: row.machine_no || '',
+                        processCode: row.process,
+                        productionQty: row.production_qty,
+                        ngQty: 0,
+                        timestamp: new Date().toISOString(),
+                    }], { headers: { Authorization: API_TOKEN }, timeout: 3000 });
+                    await updateStatus(pool, row.id,
+                        axiosRes.status === 207 ? 'ERROR' : 'SUCCESS',
+                        null, JSON.stringify(axiosRes.data));
+                } catch (apiErr) {
+                    const isTimeout = apiErr.code === 'ECONNABORTED';
+                    await updateStatus(pool, row.id,
+                        isTimeout ? 'SUCCESS' : 'ERROR',
+                        isTimeout ? null : JSON.stringify(apiErr.response?.data || apiErr.message),
+                        isTimeout ? 'timeout of 3000ms exceeded' : null);
+                }
+            }
+        }
+    } catch (err) {
+    }
+};
+
+module.exports = { router, retryErrors };

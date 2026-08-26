@@ -1,5 +1,6 @@
 import ctypes
 import os
+import time
 
 # โหลด DLL 32-bit
 DLL_PATH = os.path.join(os.path.dirname(__file__), "SID_U861.dll")
@@ -182,7 +183,21 @@ def buzzer_and_led(active_time: int, silent_time: int, times: int, port_handle: 
     local_com_addr = ctypes.c_byte(0xFF)
     return func(ctypes.byref(local_com_addr), active_time, silent_time, times, port_handle)
 
-
+def set_relay(relay_status: int, port_handle: int) -> int:
+    func = dll.SetRelay
+    func.restype  = ctypes.c_int
+    func.argtypes = [
+        ctypes.POINTER(ctypes.c_byte),
+        ctypes.c_byte,
+        ctypes.c_int,
+    ]
+    local_com_addr = ctypes.c_byte(0xFF)
+    for _ in range(3):
+        result = func(ctypes.byref(local_com_addr), relay_status, port_handle)
+        if result == 0:
+            return result
+        time.sleep(0.2)
+    return result
 # ERROR CODE
 
 def get_error_desc(code: int) -> str:

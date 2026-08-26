@@ -1,5 +1,5 @@
 import axios from 'axios';
-import API from './constance';
+import API from './constances';
 
 // Backend Node.js
 export const backendApi = axios.create({

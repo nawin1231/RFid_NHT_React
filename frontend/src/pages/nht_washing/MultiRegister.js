@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { backendApi, pythonApi } from '../../config/instance';
-import API from '../../config/constance';
+import API from '../../config/constances';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 
@@ -139,6 +139,12 @@ const MultiRegister = () => {
                 });
 
                 const result = regRes.data.result;
+                
+                if (result === 'BARCODE_COMPLETED') {
+                    showAlert('This lot is already completed!', 'warning');
+                    setBarcode('');
+                    return;
+                }
                 if (result === 'OK' || result === 'RESUME') {
                     setJobs(prev => [...prev, {
                         job_ticket_no: data.job_ticket_no,
