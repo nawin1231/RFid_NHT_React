@@ -70,7 +70,7 @@ const sendMovement = async (pool, logId, body) => {
 // A1 — PALLET IN (MOVE_IN 1201 BFW)
 router.post('/pallet-in', async (req, res) => {
     try {
-        const { tag_id, barcode, location } = req.body;
+        const { tag_id, barcode, location ,lot_data  } = req.body;
         const pool = await poolPromise;
         const payload = {
             track_id: generateTrackId('1201', location, barcode),
@@ -79,7 +79,7 @@ router.post('/pallet-in', async (req, res) => {
             jobtag: barcode,
             process: '1201',
             location: `BF${location}`,
-            production_qty: null,
+            production_qty: lot_data?.quantity ?? null,
         };
         const logId = await logToDB(pool, 'PALLET_IN', 'movement', payload);
         await sendMovement(pool, logId, {
@@ -101,7 +101,7 @@ router.post('/pallet-in', async (req, res) => {
 // A2 — PALLET OUT (MOVE_OUT 1201 BFW)
 router.post('/pallet-out', async (req, res) => {
     try {
-        const { barcode, location } = req.body;
+        const { barcode, location, lot_data  } = req.body;
         const pool = await poolPromise;
         const checkResult = await pool.request()
             .input('jobtag', sql.VarChar, barcode)
@@ -116,7 +116,7 @@ router.post('/pallet-out', async (req, res) => {
             jobtag: barcode,
             process: '1201',
             location: `BF${location}`,
-            production_qty: null,
+            production_qty: lot_data?.quantity ?? null,
         };
         const logId = await logToDB(pool, 'PALLET_OUT', 'movement', payload);
         await sendMovement(pool, logId, {
@@ -138,7 +138,7 @@ router.post('/pallet-out', async (req, res) => {
 // A3 — WASHING RUN (MOVE_IN 1201 RUN)
 router.post('/washing', async (req, res) => {
     try {
-        const { barcode, location, machine_no, process_code } = req.body;
+        const { barcode, location, machine_no, process_code,lot_data } = req.body;
         const pool = await poolPromise;
         const payload = {
             track_id: generateTrackId(process_code || '1201', 'RUN', barcode),
@@ -147,7 +147,7 @@ router.post('/washing', async (req, res) => {
             jobtag: barcode,
             process: process_code || '1201',
             location: 'RUN',
-            production_qty: null,
+            production_qty: lot_data?.quantity ?? null,
         };
         const logId = await logToDB(pool, 'WASHING_RUN', 'movement', payload);
         await sendMovement(pool, logId, {

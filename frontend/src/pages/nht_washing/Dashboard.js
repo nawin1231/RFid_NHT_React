@@ -13,18 +13,30 @@ const STEP_LABEL = {
 };
 
 const STEP_BADGE = {
-    registered:     { bg: 'bg-blue-100',   text: 'text-blue-600' },
-    before_washing: { bg: 'bg-amber-100',  text: 'text-amber-600' },
-    after_washing:  { bg: 'bg-emerald-100',text: 'text-emerald-600' },
-    on_machine:     { bg: 'bg-violet-100', text: 'text-violet-600' },
-    completed:      { bg: 'bg-gray-100',   text: 'text-gray-500' },
+    registered: { bg: 'bg-blue-100', text: 'text-blue-600' },
+    before_washing: { bg: 'bg-amber-100', text: 'text-amber-600' },
+    after_washing: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+    on_machine: { bg: 'bg-violet-100', text: 'text-violet-600' },
+    completed: { bg: 'bg-gray-100', text: 'text-gray-500' },
 };
 
 const STEP_COLOR = {
-    registered:     'text-blue-400',
+    registered: 'text-blue-400',
     before_washing: 'text-amber-400',
-    after_washing:  'text-emerald-400',
-    on_machine:     'text-violet-400',
+    after_washing: 'text-emerald-400',
+    on_machine: 'text-violet-400',
+};
+
+const EVENT_MAP = {
+    PALLET_IN: { tr: 'Receive', sign: 1 },
+    PALLET_OUT: { tr: 'Issue', sign: -1 },
+    WASHING_RUN: { tr: 'Receive', sign: 1 },
+    WASHING_RESULT: { tr: 'Issue', sign: -1 },
+    STOR_IN: { tr: 'Receive', sign: 1 },
+    STOR_OUT: { tr: 'Issue', sign: -1 },
+    ON_MACHINE_IN: { tr: 'Receive', sign: 1 },
+    ON_MACHINE_OUT: { tr: 'Issue', sign: -1 },
+    CHECKING: { tr: '-', sign: 0 },
 };
 
 const toDateStr = (d) => d.toISOString().slice(0, 10);
@@ -48,6 +60,9 @@ const Dashboard = () => {
     const [summary, setSummary] = useState([]);
     const [lots, setLots] = useState([]);
     const [history, setHistory] = useState([]);
+    const [movementBarcode, setMovementBarcode] = useState('');
+    const [movementData, setMovementData] = useState(null);
+    const [movementLoading, setMovementLoading] = useState(false);
     const [tab, setTab] = useState('monitor');
     const [page, setPage] = useState(1);
     const [loading, setLoading] = useState(false);
@@ -67,7 +82,6 @@ const Dashboard = () => {
     const fetchHistory = async (f = filter) => {
         setLoading(true);
         try {
-            const params = Object.fromEntries(Object.entries(f).filter(([, v]) => v !== ''));
             const res = await backendApi.get('/dashboard', { params: { date_from: f.date_from || today, date_to: f.date_to || today } });
             setHistory(res.data.history || []);
             setPage(1);
@@ -78,11 +92,25 @@ const Dashboard = () => {
         }
     };
 
+    const fetchMovement = async (barcode) => {
+        if (!barcode) return;
+        setMovementLoading(true);
+        try {
+            const res = await backendApi.get(`/dashboard/${barcode}`);
+            setMovementData(res.data);
+        } catch {
+            setMovementData(null);
+        } finally {
+            setMovementLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchMonitor();
         fetchHistory();
         intervalRef.current = setInterval(fetchMonitor, 3 * 60 * 1000);
         return () => clearInterval(intervalRef.current);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleChange = (e) => setFilter({ ...filter, [e.target.name]: e.target.value });
@@ -124,6 +152,46 @@ const Dashboard = () => {
     // KPI: qty แยกตาม sub_process จาก summary
     const getQty = (step) => (summary.find(s => s.sub_process === step)?.total_qty ?? 0).toLocaleString();
 
+    const expandRows = (rows, lotQty) => {
+        if (!rows) return [];
+        const result = [];
+
+        let storIssued = false; // Issue STOR เกิดแค่ครั้งเดียว
+
+        rows.forEach(r => {
+            if (r.event_type === 'WASHING_RESULT') {
+                // Issue 1201 RUN ก่อน
+                result.push(r);
+                // Receive STOR BF
+                result.push({
+                    ...r, event_type: 'STOR_IN',
+                    process: 'STOR',
+                    location: 'BF'
+                });
+
+            } else if (r.event_type === 'ON_MACHINE_IN') {
+                // Issue STOR ครั้งเดียวก่อน tag แรก
+                if (!storIssued) {
+                    result.push({
+                        ...r,
+                        event_type: 'STOR_OUT',
+                        process: 'STOR',
+                        location: 'BF',
+                        production_qty: lotQty,
+                    });
+                    storIssued = true;
+                }
+                // Receive 1520 BF ทีละ tag
+                result.push(r);
+
+            } else if (r.event_type === 'CHECKING') return;
+            else {
+                result.push(r);
+            }
+        });
+
+        return result;
+    };
     return (
         <div className="flex flex-col gap-3 h-full">
 
@@ -133,6 +201,7 @@ const Dashboard = () => {
                     {[
                         { key: 'monitor', label: 'Monitor' },
                         { key: 'history', label: 'History' },
+                        { key: 'movement', label: 'Movement' },
                     ].map(t => (
                         <button
                             key={t.key}
@@ -279,7 +348,15 @@ const Dashboard = () => {
                                         <tr><td colSpan={10} className="text-center py-12 text-gray-300 text-sm">No records found</td></tr>
                                     )}
                                     {pagedHistory.map((h, i) => (
-                                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                        <tr
+                                            key={i}
+                                            className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer"
+                                            onClick={() => {
+                                                setMovementBarcode(h.barcode);
+                                                setTab('movement');
+                                                fetchMovement(h.barcode);
+                                            }}
+                                        >
                                             <td className="px-4 py-2.5 text-xs text-gray-400">{(page - 1) * PAGE_SIZE + i + 1}</td>
                                             <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">{h.barcode}</td>
                                             <td className="px-4 py-2.5"><StepBadge step={h.sub_process} /></td>
@@ -320,6 +397,95 @@ const Dashboard = () => {
                                     <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                                         className="h-7 px-3 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 text-gray-500">›</button>
                                 </div>
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
+            {tab === 'movement' && (
+                <>
+                    {/* Search bar */}
+                    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shrink-0">
+                        <div className="flex gap-2">
+                            <input
+                                value={movementBarcode}
+                                onChange={e => setMovementBarcode(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && fetchMovement(movementBarcode)}
+                                placeholder="Job Ticket / Barcode"
+                                className={inputCls + " flex-1"}
+                            />
+                            <button
+                                onClick={() => fetchMovement(movementBarcode)}
+                                disabled={movementLoading}
+                                className="h-9 px-5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50"
+                            >
+                                {movementLoading ? '...' : 'Search'}
+                            </button>
+                        </div>
+                        {/* lot info */}
+                        {movementData?.lot && (
+                            <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                                <span>Part: <b className="text-gray-700">{movementData.lot.part_no}</b></span>
+                                <span>Qty: <b className="text-gray-700">{(movementData.lot.quantity ?? 0).toLocaleString()}</b></span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Table */}
+                    <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden min-h-0">
+                        <div className="overflow-auto flex-1">
+                            <table className="w-full">
+                                <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        {['Datetime', 'Tranfer', 'Process', 'Location', 'Machine No', 'Quantity', 'On-Hand'].map(col => (
+                                            <th key={col} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 uppercase tracking-wider">
+                                                {col}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {!movementData && (
+                                        <tr><td colSpan={7} className="text-center py-12 text-gray-300 text-sm">กรอก barcode แล้วกด Search</td></tr>
+                                    )}
+                                    {movementData?.rows?.length === 0 && (
+                                        <tr><td colSpan={7} className="text-center py-12 text-gray-300 text-sm">No records</td></tr>
+                                    )}
+                                    {(() => {
+                                        let onHand = 0;
+                                        return expandRows(movementData?.rows, movementData?.lot?.quantity).map((r, i) => {
+                                            const ev = EVENT_MAP[r.event_type] || { tr: r.event_type, sign: 0 };
+                                            onHand += ev.sign * (r.production_qty || 0);
+                                            const ts = new Date(r.timestamp);
+                                            return (
+                                                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                                    <td className="px-4 py-2.5 text-xs text-gray-500">{ts.toLocaleString('th-TH')}</td>
+                                                    <td className={`px-4 py-2.5 text-xs font-semibold ${ev.tr === 'Receive' ? 'text-emerald-600' : ev.tr === 'Issue' ? 'text-red-400' : 'text-gray-400'}`}>
+                                                        {ev.tr}
+                                                    </td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.process}</td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.location}</td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.machine_no || '-'}</td>
+                                                    <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(r.production_qty ?? 0).toLocaleString()}</td>
+                                                    <td className="px-4 py-2.5 text-sm font-bold text-blue-600">{onHand.toLocaleString()}</td>
+                                                </tr>
+                                            );
+                                        });
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                        {/* On-Hand footer */}
+                        {movementData?.rows?.length > 0 && (
+                            <div className="px-4 py-2.5 border-t border-gray-100 flex justify-end shrink-0">
+                                <p className="text-sm font-bold text-blue-600">
+                                    On-Hand: {(() => {
+                                        return expandRows(movementData?.rows, movementData?.lot?.quantity).reduce((acc, r) => {
+                                            const ev = EVENT_MAP[r.event_type] || { sign: 0 };
+                                            return acc + ev.sign * (r.production_qty || 0);
+                                        }, 0).toLocaleString()
+                                    })()}
+                                </p>
                             </div>
                         )}
                     </div>

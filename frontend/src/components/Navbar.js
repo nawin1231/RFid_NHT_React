@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import Swal from 'sweetalert2';
 import PageGuild from '../config/PageGuild';
+import { useAuth } from '../config/auth';
 
 const pageTitles = {
     '/dashboard': 'Dashboard',
@@ -17,8 +18,15 @@ const pageTitles = {
 
 const Navbar = () => {
     const { pathname } = useLocation();
+    const navigate = useNavigate();
+    const { user, logout } = useAuth();
     const title = pageTitles[pathname] || 'RFID System';
     const [currentTime, setCurrentTime] = useState(new Date());
+
+    const handleLogout = () => {
+        logout();
+        navigate('/');
+    };
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -49,9 +57,21 @@ const Navbar = () => {
                 )}
             </div>
 
-            <span className="text-xs text-gray-400">
-                Date: {currentTime.toLocaleDateString('th-TH')} | Time: {currentTime.toLocaleTimeString('th-TH')}
-            </span>
+            <div className="flex items-center gap-4">
+                <span className="text-xs text-gray-400">
+                    Date: {currentTime.toLocaleDateString('th-TH')} | Time: {currentTime.toLocaleTimeString('th-TH')}
+                </span>
+                {user && (
+                    <div className="flex items-center gap-3 border-l border-gray-200 pl-4">
+                        <button
+                            onClick={handleLogout}
+                            className="text-base text-red-400 hover:text-red-600 hover:bg-red-50 px-2 py-1 rounded transition-colors"
+                        >
+                            Sign out
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 };

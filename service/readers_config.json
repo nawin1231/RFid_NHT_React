@@ -2,7 +2,7 @@
     {
         "port": 8000,
         "type": "register",
-        "enabled": true,
+        "enabled": false,
         "ip": "192.168.1.190",
         "power": 12,
         "location": "REG1"
@@ -26,7 +26,7 @@
     {
         "port": 8003,
         "type": "on_machine",
-        "enabled": false,
+        "enabled": true,
         "ip": "192.168.1.190",
         "power": 12,
         "location": "FL-06",

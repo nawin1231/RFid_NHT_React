@@ -1,20 +1,20 @@
 const express = require('express');
-const router  = express.Router();
+const router = express.Router();
 const { sql, poolPromise } = require('../database');
 const axios = require('axios');
-const fs    = require('fs');
-const path  = require('path');
+const fs = require('fs');
+const path = require('path');
 
 // ===== ENV =====
-const AS400_INTERNAL_URL  = process.env.AS400_INTERNAL_URL || 'http://localhost:5000/api/as400';
-const JOB_TICKET_URL      = process.env.JOB_TICKET_URL;
-const MACHINE_URL         = process.env.MACHINE_URL;
-const PART_CONVERT_URL    = process.env.PART_CONVERT_URL;
-const API_TOKEN           = process.env.API_TOKEN;
+const AS400_INTERNAL_URL = process.env.AS400_INTERNAL_URL || 'http://localhost:5000/api/as400';
+const JOB_TICKET_URL = process.env.JOB_TICKET_URL;
+const MACHINE_URL = process.env.MACHINE_URL;
+const PART_CONVERT_URL = process.env.PART_CONVERT_URL;
+const API_TOKEN = process.env.API_TOKEN;
 
 // ===== CACHE =====
 const apiCache = new Map();
-const TTL_5MIN  = 5  * 60 * 1000;
+const TTL_5MIN = 5 * 60 * 1000;
 const TTL_30MIN = 30 * 60 * 1000;
 
 const withCache = async (key, ttlMs, fetchFn) => {
@@ -145,17 +145,17 @@ router.get('/status', async (req, res) => {
         }
 
         const statuses = results.map((r, i) => {
-            const reader     = readers[i];
+            const reader = readers[i];
             const machineRow = (machineList || []).find(m => m.machineNoProd === reader.location);
             return {
-                type:        reader.type,
-                port:        reader.port,
-                location:    reader.location,
-                ip:          reader.ip,
-                connected:   r.status === 'fulfilled' && r.value.data.connected,
+                type: reader.type,
+                port: reader.port,
+                location: reader.location,
+                ip: reader.ip,
+                connected: r.status === 'fulfilled' && r.value.data.connected,
                 current_qty: r.status === 'fulfilled' ? (r.value.data.current_qty ?? 0) : 0,
-                min_qty:     r.status === 'fulfilled' ? (r.value.data.min_qty     ?? 0) : 0,
-                low_qty:     r.status === 'fulfilled' ? (r.value.data.low_qty     ?? false) : false,
+                min_qty: r.status === 'fulfilled' ? (r.value.data.min_qty ?? 0) : 0,
+                low_qty: r.status === 'fulfilled' ? (r.value.data.low_qty ?? false) : false,
             };
         });
 
@@ -178,28 +178,28 @@ router.post('/register-lot', async (req, res) => {
             ir_diameter, rw_diameter, process_date, quantity,
         } = req.body;
 
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('barcode',      sql.VarChar,  barcode)
-            .input('lot_no',       sql.VarChar,  lot_no)
-            .input('material_no',  sql.VarChar,  material_no)
-            .input('part_no',      sql.VarChar,  part_no)
-            .input('machine_no',   sql.VarChar,  machine_no)
-            .input('process_code', sql.VarChar,  process_code)
-            .input('process',      sql.VarChar,  process)
-            .input('coil',         sql.VarChar,  coil)
-            .input('ir_diameter',  sql.VarChar,  ir_diameter)
-            .input('rw_diameter',  sql.VarChar,  rw_diameter)
+            .input('barcode', sql.VarChar, barcode)
+            .input('lot_no', sql.VarChar, lot_no)
+            .input('material_no', sql.VarChar, material_no)
+            .input('part_no', sql.VarChar, part_no)
+            .input('machine_no', sql.VarChar, machine_no)
+            .input('process_code', sql.VarChar, process_code)
+            .input('process', sql.VarChar, process)
+            .input('coil', sql.VarChar, coil)
+            .input('ir_diameter', sql.VarChar, ir_diameter)
+            .input('rw_diameter', sql.VarChar, rw_diameter)
             .input('process_date', sql.DateTime, process_date ? new Date(process_date) : null)
-            .input('quantity',     sql.Int,      quantity)
+            .input('quantity', sql.Int, quantity)
             .execute('Stored_tb_rfid_lot_insert');
 
         const data = result.recordset[0];
         res.json({
-            result:        data.result,
-            tray_counter:  data.tray_counter,
-            tray_done:     data.tray_done,
-            tray_qty:      data.tray_qty,
+            result: data.result,
+            tray_counter: data.tray_counter,
+            tray_done: data.tray_done,
+            tray_qty: data.tray_qty,
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -209,9 +209,9 @@ router.post('/register-lot', async (req, res) => {
 router.post('/register-tray', async (req, res) => {
     try {
         const { tag_id, barcode } = req.body;
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('tag_id',  sql.VarChar, tag_id)
+            .input('tag_id', sql.VarChar, tag_id)
             .input('barcode', sql.VarChar, barcode)
             .execute('Stored_tb_rfid_tray_insert');
 
@@ -229,9 +229,9 @@ router.post('/register-tray', async (req, res) => {
 router.post('/pallet', async (req, res) => {
     try {
         const { tag_id, location } = req.body;
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('tag_id',   sql.VarChar, tag_id)
+            .input('tag_id', sql.VarChar, tag_id)
             .input('location', sql.VarChar, location)
             .execute('Stored_tb_rfid_lot_update_location');
 
@@ -254,8 +254,17 @@ router.post('/pallet', async (req, res) => {
 router.post('/pallet-lot-out', async (req, res) => {
     try {
         const { barcode, location } = req.body;
-        axios.post(`${AS400_INTERNAL_URL}/pallet-out`, { barcode, location })
-            .catch(err => console.error('[AS400] pallet-out error:', err.message));
+        const pool = await poolPromise;
+
+        const lotResult = await pool.request()
+            .input('barcode', sql.VarChar, barcode)
+            .execute('Stored_tb_rfid_dashboard_movement');
+        const lotData = lotResult.recordsets[0][0];
+
+        axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
+            barcode, location, lot_data: lotData,
+        }).catch(err => console.error('[AS400] pallet-out error:', err.message));
+
         res.json({ result: 'OK' });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -281,10 +290,10 @@ router.post('/pallet-lot-out', async (req, res) => {
 router.post('/washing', async (req, res) => {
     try {
         const { tag_id, location, machine_no, process_code } = req.body;
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('tag_id',       sql.VarChar, tag_id)
-            .input('machine_no',   sql.VarChar, machine_no   || null)
+            .input('tag_id', sql.VarChar, tag_id)
+            .input('machine_no', sql.VarChar, location || null)
             .input('process_code', sql.VarChar, process_code || null)
             .execute('Stored_tb_rfid_tray_after_washing');
 
@@ -296,16 +305,17 @@ router.post('/washing', async (req, res) => {
             const lotData = lotResult.recordset[0];
             await axios.post(`${AS400_INTERNAL_URL}/washing`, {
                 tag_id,
-                barcode:      lotData?.barcode,
-                location:     lotData?.location,
-                machine_no:   machine_no,
+                barcode: lotData?.barcode,
+                location: lotData?.location,
+                machine_no: location,
                 process_code: lotData?.process_code,
-                process:      lotData?.process,
+                process: lotData?.process,
+                lot_data: lotData,
             }).catch(err => console.error('[AS400] washing error:', err.message));
             await new Promise(r => setTimeout(r, 5000));
             await axios.post(`${AS400_INTERNAL_URL}/washing-result`, {
-                barcode:        lotData?.barcode,
-                machine_no:     machine_no || '',
+                barcode: lotData?.barcode,
+                machine_no: machine_no || '',
                 production_qty: lotData?.quantity,
             }).catch(err => console.error('[AS400] washing-result error:', err.message));
         }
@@ -316,14 +326,13 @@ router.post('/washing', async (req, res) => {
 });
 
 
-// =========================================================
 // ON MACHINE
 // =========================================================
 
 // ดึงข้อมูล lot จาก tag_id (ใช้ใน Python และ MachineValidation)
 router.get('/lot-by-tag/:tagId', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .input('tag_id', sql.VarChar, req.params.tagId)
             .execute('Stored_tb_rfid_lot_select_by_tagid');
@@ -363,7 +372,7 @@ router.post('/on-machine', async (req, res) => {
         const convertedParts = Array.isArray(convertData)
             ? convertData.map(c => c.partConvertTo).filter(Boolean)
             : [];
-        const partsToMatch  = convertedParts.length > 0 ? convertedParts : [lotData.part_no];
+        const partsToMatch = convertedParts.length > 0 ? convertedParts : [lotData.part_no];
         const matchedMachine = machineList.find(m =>
             m.machineNoProd === location &&
             partsToMatch.some(p => m.innerRingPart === p || m.outerRingPart === p)
@@ -372,8 +381,8 @@ router.post('/on-machine', async (req, res) => {
 
         // 4. update DB
         const result = await pool.request()
-            .input('tag_id',       sql.VarChar, tag_id)
-            .input('machine_no',   sql.VarChar, location    || null)
+            .input('tag_id', sql.VarChar, tag_id)
+            .input('machine_no', sql.VarChar, location || null)
             .input('process_code', sql.VarChar, process_code || null)
             .execute('Stored_tb_rfid_tray_on_machine');
         const status = result.recordset[0]?.result ?? 'OK';
@@ -381,11 +390,11 @@ router.post('/on-machine', async (req, res) => {
         // 5. ส่ง A5 AS400
         if (status === 'OK' || status === 'LOT_ON_MACHINE') {
             axios.post(`${AS400_INTERNAL_URL}/on-machine-in`, {
-                barcode:        lotData.barcode,
-                machine_no:     location || '',
+                barcode: lotData.barcode,
+                machine_no: location || '',
                 production_qty: lotData.tray_qty,
-                process_code:   lotData.process_code,
-                process:        lotData.process,
+                process_code: lotData.process_code,
+                process: lotData.process,
             }).catch(err => console.error('[AS400] on-machine-in error:', err.message));
         }
         res.json({ result: status });
@@ -407,18 +416,18 @@ router.post('/on-machine-checking', async (req, res) => {
             machineList = apiCache.get('machine-list')?.data || [];
         }
 
-        const machineRow   = (machineList || []).find(m => m.machineNoProd === location);
-        const wosBarcode   = machineRow?.wosBarcode   || '';
+        const machineRow = (machineList || []).find(m => m.machineNoProd === location);
+        const wosBarcode = machineRow?.wosBarcode || '';
         // innerRingPart = materialType 2, outerRingPart = materialType 1
         const materialType = machineRow?.innerRingPart === part_no ? '2' : '1';
-        const checkResult  = wosBarcode ? 'Y' : 'N';
+        const checkResult = wosBarcode ? 'Y' : 'N';
 
         axios.post(`${AS400_INTERNAL_URL}/checking`, {
             barcode,
-            machine_no:    location,
-            wos_barcode:   wosBarcode,
-            jobtag:        barcode,
-            check_result:  checkResult,
+            machine_no: location,
+            wos_barcode: wosBarcode,
+            jobtag: barcode,
+            check_result: checkResult,
             material_type: materialType,
         }).catch(err => console.error('[AS400] checking error:', err.message));
 
@@ -444,7 +453,7 @@ router.post('/on-machine-out', async (req, res) => {
 // นับ tray ที่ผ่าน washing แล้ว
 router.get('/tray_count/:barcode', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .input('barcode', sql.VarChar, req.params.barcode)
             .execute('Stored_tb_rfid_tray_count_washing');
@@ -462,7 +471,7 @@ router.get('/tray_count/:barcode', async (req, res) => {
 router.post('/completed', async (req, res) => {
     try {
         const { tag_id } = req.body;
-        const pool       = await poolPromise;
+        const pool = await poolPromise;
 
         const lotResult = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
@@ -470,7 +479,7 @@ router.post('/completed', async (req, res) => {
         const lotData = lotResult.recordset[0];
 
         const result = await pool.request()
-            .input('tag_id',       sql.VarChar, tag_id)
+            .input('tag_id', sql.VarChar, tag_id)
             .input('process_code', sql.VarChar, lotData?.process_code || null)
             .execute('Stored_tb_rfid_tray_completed');
 
@@ -494,13 +503,29 @@ router.get('/dashboard', async (req, res) => {
             .execute('Stored_tb_rfid_dashboard_monitor');
         const history = await pool.request()
             .input('date_from', date_from)
-            .input('date_to',   date_to)
+            .input('date_to', date_to)
             .execute('Stored_tb_rfid_dashboard_history');
 
         res.json({
             summary: monitor.recordsets[0],  // นับ lot แยก sub_process
-            lots:    monitor.recordsets[1],  // lot list Ongoing
+            lots: monitor.recordsets[1],  // lot list Ongoing
             history: history.recordsets[0],  // log history
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.get('/dashboard/:barcode', async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('barcode', sql.VarChar, req.params.barcode)
+            .execute('[Stored_tb_rfid_dashboard_movement]');
+
+        res.json({
+            lot: result.recordsets[0][0] || null,
+            rows: result.recordsets[1],
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -514,7 +539,7 @@ router.get('/dashboard', async (req, res) => {
 // ดึง qty รวมของ tray ที่อยู่บน on_machine แยกตาม machine
 router.get('/mbr-monitor', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .execute('Stored_tb_rfid_mbr_monitor');
         res.json(result.recordset);
@@ -568,9 +593,9 @@ router.post('/readers-restart/:port', async (req, res) => {
 router.post('/login', async (req, res) => {
     try {
         const { emp_id, password } = req.body;
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('emp_id',   sql.VarChar, emp_id)
+            .input('emp_id', sql.VarChar, emp_id)
             .input('password', sql.VarChar, password)
             .execute('Stored_tb_rfid_login_check');
 
@@ -587,7 +612,7 @@ router.post('/login', async (req, res) => {
 // ดึง user ทั้งหมด
 router.get('/login-setting', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .execute('Stored_tb_rfid_login_setting_select');
         res.json(result.recordset);
@@ -601,10 +626,10 @@ router.post('/login-setting', async (req, res) => {
         const { emp_id, eng_name, password, position } = req.body;
         const pool = await poolPromise;
         await pool.request()
-            .input('emp_id',    sql.VarChar, emp_id)
-            .input('eng_name',  sql.VarChar, eng_name)
-            .input('password',  sql.VarChar, password)
-            .input('position',  sql.VarChar, position)
+            .input('emp_id', sql.VarChar, emp_id)
+            .input('eng_name', sql.VarChar, eng_name)
+            .input('password', sql.VarChar, password)
+            .input('position', sql.VarChar, position)
             .execute('Stored_tb_rfid_login_setting_insert');
         res.json({ result: 'OK' });
     } catch (err) {
@@ -659,7 +684,7 @@ router.put('/location-ports', (req, res) => {
 // ดึง master tray ทั้งหมด
 router.get('/master-tray', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .execute('Stored_tb_master_tray_select');
         res.json(result.recordset);
@@ -671,11 +696,11 @@ router.get('/master-tray', async (req, res) => {
 router.post('/master-tray', async (req, res) => {
     try {
         const { part_no, pcs_stc, stc_try } = req.body;
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
-            .input('part_no',  sql.VarChar, part_no)
-            .input('pcs_stc',  sql.Int,     pcs_stc)
-            .input('stc_try',  sql.Int,     stc_try)
+            .input('part_no', sql.VarChar, part_no)
+            .input('pcs_stc', sql.Int, pcs_stc)
+            .input('stc_try', sql.Int, stc_try)
             .execute('Stored_tb_master_tray_update');
         res.json(result.recordset[0]);
     } catch (err) {
@@ -686,12 +711,12 @@ router.post('/master-tray', async (req, res) => {
 router.post('/master-tray/import', async (req, res) => {
     try {
         const { data } = req.body;
-        const pool     = await poolPromise;
-        const results  = await Promise.all(data.map(row =>
+        const pool = await poolPromise;
+        const results = await Promise.all(data.map(row =>
             pool.request()
                 .input('part_no', sql.VarChar, row.part_no)
-                .input('pcs_stc', sql.Int,     row.pcs_stc)
-                .input('stc_try', sql.Int,     row.stc_try)
+                .input('pcs_stc', sql.Int, row.pcs_stc)
+                .input('stc_try', sql.Int, row.stc_try)
                 .execute('Stored_tb_master_tray_update')
         ));
         res.json({ result: 'OK', count: results.length });
@@ -719,7 +744,7 @@ router.delete('/master-tray/:id', async (req, res) => {
 // ดึง master process ทั้งหมด
 router.get('/master-process', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .execute('Stored_tb_master_process_select');
         res.json(result.recordset);
@@ -734,7 +759,7 @@ router.post('/master-process', async (req, res) => {
         const pool = await poolPromise;
         await pool.request()
             .input('process_code', sql.VarChar, process_code)
-            .input('process',      sql.VarChar, process)
+            .input('process', sql.VarChar, process)
             .execute('Stored_tb_master_process_insert');
         res.json({ result: 'OK' });
     } catch (err) {
@@ -747,9 +772,9 @@ router.put('/master-process/:id', async (req, res) => {
         const { process_code, process } = req.body;
         const pool = await poolPromise;
         await pool.request()
-            .input('id',           sql.Int,     req.params.id)
+            .input('id', sql.Int, req.params.id)
             .input('process_code', sql.VarChar, process_code)
-            .input('process',      sql.VarChar, process)
+            .input('process', sql.VarChar, process)
             .execute('Stored_tb_master_process_update');
         res.json({ result: 'OK' });
     } catch (err) {

@@ -20,14 +20,9 @@ const Sidebar = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const [hovered, setHovered] = useState(false);
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
 
     const collapsed = !hovered;
-
-    const handleLogout = () => {
-        logout();
-        navigate('/');
-    };
 
     const getSavedLocation = (type) => {
         return localStorage.getItem(`rfid_location_${type}`) || '';
@@ -115,6 +110,12 @@ const Sidebar = () => {
                     <div className="w-full">
                         <p className="text-sm font-semibold text-gray-800">RFID System</p>
                         <p className="text-xs text-gray-400">Washing</p>
+                        {user && (
+                            <div className="mt-2 pt-2 border-t border-gray-100">
+                                <p className="text-xs font-medium text-gray-700 truncate">{user.eng_name}</p>
+                                <p className="text-xs text-blue-400">{user.position}</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -139,17 +140,7 @@ const Sidebar = () => {
                 ))}
             </nav>
 
-            {user && !collapsed && (
-                <div className="p-3 border-t border-gray-100">
-                    <p className="text-xs text-gray-500 truncate">{user.eng_name}</p>
-                    <button
-                        onClick={handleLogout}
-                        className="text-xs text-red-400 hover:text-red-600 mt-1"
-                    >
-                        Sign out
-                    </button>
-                </div>
-            )}
+
         </div>
     );
 };
