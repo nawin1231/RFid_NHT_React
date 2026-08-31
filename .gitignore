@@ -1,25 +1,23 @@
-# Node
+# Dependencies
 node_modules/
+
+# Environment
 .env
-backend/.env
+.env.local
+.env.production
+
+# Build
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# PM2
+.pm2/
 
 # Python
 __pycache__/
 *.pyc
 *.pyo
-
-# DLL / Binary
-SID_U861.dll
-
-# Load test
-k6.exe
-load_test.js
-load_test_report.txt
-result.json
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Build
-frontend/build/

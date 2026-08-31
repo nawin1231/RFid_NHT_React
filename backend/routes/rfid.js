@@ -156,6 +156,9 @@ router.get('/status', async (req, res) => {
                 current_qty: r.status === 'fulfilled' ? (r.value.data.current_qty ?? 0) : 0,
                 min_qty: r.status === 'fulfilled' ? (r.value.data.min_qty ?? 0) : 0,
                 low_qty: r.status === 'fulfilled' ? (r.value.data.low_qty ?? false) : false,
+                alarm: r.status === 'fulfilled' ? (r.value.data.alarm ?? false) : false,
+                alarm_barcode: r.status === 'fulfilled' ? (r.value.data.alarm_barcode ?? '') : '',
+                alarm_part: r.status === 'fulfilled' ? (r.value.data.alarm_part ?? '') : '',
             };
         });
 

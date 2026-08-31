@@ -26,7 +26,7 @@
     {
         "port": 8003,
         "type": "on_machine",
-        "enabled": true,
+        "enabled": false,
         "ip": "192.168.1.190",
         "power": 12,
         "location": "FL-06",
@@ -35,7 +35,7 @@
     {
         "port": 8004,
         "type": "completed",
-        "enabled": false,
+        "enabled": true,
         "ip": "192.168.1.190",
         "power": 12,
         "location": "COM"

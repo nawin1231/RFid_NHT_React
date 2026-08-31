@@ -194,27 +194,51 @@ def scan_loop_on_machine():
                             "location":     READER_PALLET_LOCATION,
                             "process_code": READER_PROCESS_CODE,
                         }, timeout=5)
-                        result = res.json().get("result")
 
+                        result = res.json().get("result")
                         if result == "PART_MISMATCH":
                             print(f"[on_machine] MISMATCH: {tag}")
+                            try:
+                                lot_res          = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
+                                lot_data         = lot_res.json()
+                                mismatch_barcode = lot_data.get("data", {}).get("barcode", "")
+                                mismatch_part    = lot_data.get("data", {}).get("part_no", "")
+                            except:
+                                mismatch_barcode = ""
+                                mismatch_part    = ""
                             rejected_tags.add(tag)
+                            reader_state["alarm"]         = True
+                            reader_state["alarm_tag"]     = tag
+                            reader_state["alarm_barcode"] = mismatch_barcode
+                            reader_state["alarm_part"]    = mismatch_part
                             start_alarm()
                         elif result in ("LOT_NOT_READY", "NOT_WASHED", "NOT_FOUND"):
                             print(f"[on_machine] WARNING {result}: {tag}")
+                            try:
+                                lot_res          = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
+                                lot_data         = lot_res.json()
+                                mismatch_barcode = lot_data.get("data", {}).get("barcode", "")
+                                mismatch_part    = lot_data.get("data", {}).get("part_no", "")
+                            except:
+                                mismatch_barcode = ""
+                                mismatch_part    = ""
                             rejected_tags.add(tag)
+                            reader_state["alarm"]         = True
+                            reader_state["alarm_tag"]     = tag
+                            reader_state["alarm_barcode"] = mismatch_barcode
+                            reader_state["alarm_part"]    = mismatch_part
                             start_alarm()
                         else:
+                            reader_state["alarm"] = False
                             stop_alarm()
                             tags_on_machine[tag] = now
-
-                            # ดึง lot data สำหรับ qty tracking
                             raw_qty  = 0
                             lot_data = {}
                             try:
                                 lot_res  = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
                                 lot_data = lot_res.json()
                                 raw_qty  = lot_data.get("data", {}).get("tray_qty", 0)
+                                
                             except:
                                 pass
 
@@ -251,6 +275,10 @@ def scan_loop_on_machine():
                 if removed_rejected:
                     rejected_tags -= removed_rejected
                     if not rejected_tags:
+                        reader_state["alarm"]         = False
+                        reader_state["alarm_tag"]     = ""
+                        reader_state["alarm_barcode"] = ""
+                        reader_state["alarm_part"]    = ""
                         stop_alarm()
 
                 # tag หายออก → เริ่มนับ cooldown
@@ -541,7 +569,11 @@ def status():
         "low_qty":     MIN_QTY > 0 and current_qty < MIN_QTY,
         "parts":       unique_parts,
         "rps":         unique_rps,
-    }
+        "alarm":       reader_state.get("alarm", False),
+        "alarm_tag":     reader_state.get("alarm_tag", ""),
+        "alarm_barcode": reader_state.get("alarm_barcode", ""),
+        "alarm_part":    reader_state.get("alarm_part", ""),
+}
 
 @app.get("/tags")
 def get_tags():
@@ -577,3 +609,13 @@ def restart_reader():
         ])
     threading.Thread(target=do_restart, daemon=True).start()
     return {"result": "OK"}
+
+@app.get("/alarm")
+def get_alarm():
+    return {
+        "alarm":   reader_state.get("alarm", False),
+        "location": READER_PALLET_LOCATION,
+        "tag":     reader_state.get("alarm_tag", ""),
+        "barcode": reader_state.get("alarm_barcode", ""),
+        "part":    reader_state.get("alarm_part", ""),
+    }

@@ -288,7 +288,6 @@ router.post('/checking', async (req, res) => {
             await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
         }
         // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
-        // console.log('[A6 CHECKING] mock payload:', JSON.stringify(payload, null, 2));
         res.json({ result: 'OK' });
     } catch (err) {
         console.error('[AS400] checking error:', err.message);

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { backendApi } from '../../../config/instance';
 import Swal from 'sweetalert2';
 import * as XLSX from 'xlsx';
+import { UploadOutlined, DownloadOutlined,FileExcelOutlined  } from '@ant-design/icons';
 
 const defaultForm = { part_no: '', pcs_stc: '', stc_try: '' };
 
@@ -171,12 +172,12 @@ const MasterTrayTab = () => {
                         <span className="text-xs text-gray-400">{trays.length} records</span>
                         <button
                             onClick={handleDownloadTemplate}
-                            className="h-8 px-3 text-xs rounded-lg border border-green-200 text-green-500 hover:bg-green-50"
+                            className="h-8 px-3 text-base rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
                         >
-                            Download Template
+                            <DownloadOutlined />  <FileExcelOutlined />
                         </button>
-                        <label className="h-8 px-3 text-xs rounded-lg border border-blue-200 text-blue-500 hover:bg-blue-50 cursor-pointer flex items-center">
-                            Import Excel
+                        <label className="h-8 px-3 text-base rounded-lg border border-blue-200 text-blue-500 hover:bg-blue-50 cursor-pointer flex items-center gap-1">
+                            <UploadOutlined />  <FileExcelOutlined />
                             <input type="file" accept=".xlsx,.xls" onChange={handleImport} className="hidden" />
                         </label>
                     </div>

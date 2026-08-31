@@ -18,5 +18,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => {
     setInterval(retryErrors, 5 * 60 * 1000);
-    console.log(`Server running on port ${PORT}`);
 });
