@@ -189,6 +189,26 @@ def scan_loop_on_machine():
                 for tag in new_tags:
                     print(f"[{time.strftime('%H:%M:%S')}] [ON MACHINE] {tag}")
                     try:
+                        check_res  = httpx.get(f"{NODE_URL}/last-on-machine-event/{tag}", timeout=5)
+                        last_event = check_res.json().get("event_type", "")
+
+                        if last_event == "ON_MACHINE_IN":
+                            # restore memory ไม่ส่ง AS400 ซ้ำ
+                            tags_disappeared_machine.pop(tag, None)
+                            tags_on_machine[tag] = now
+                            try:
+                                lot_res  = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
+                                lot_data = lot_res.json()
+                                qty      = lot_data.get("data", {}).get("tray_qty", 0)
+                                tag_qty[tag]     = int(qty or 0)
+                                tag_barcode[tag] = lot_data.get("data", {}).get("barcode")
+                                tag_part_no[tag] = lot_data.get("data", {}).get("part_no")
+                                tag_rp[tag]      = lot_data.get("data", {}).get("rw_diameter")
+                                current_qty     += int(qty or 0)
+                                print(f"[on_machine] RESTORED {tag} qty={qty}")
+                            except:
+                                pass
+                            continue
                         res = httpx.post(f"{NODE_URL}/on-machine", json={
                             "tag_id":       tag,
                             "location":     READER_PALLET_LOCATION,

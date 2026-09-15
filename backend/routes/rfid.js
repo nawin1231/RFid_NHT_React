@@ -440,6 +440,19 @@ router.post('/on-machine-checking', async (req, res) => {
     }
 });
 
+// ดึง last on-machine event ของ tag
+router.get('/last-on-machine-event/:tagId', async (req, res) => {
+    try {
+        const pool   = await poolPromise;
+        const result = await pool.request()
+            .input('tag_id', sql.VarChar, req.params.tagId)
+            .execute('Stored_tb_rfid_last_on_machine_event');
+        res.json(result.recordset[0] || { event_type: '' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // A7 — tag ออก on_machine เกิน cooldown
 router.post('/on-machine-out', async (req, res) => {
     try {
