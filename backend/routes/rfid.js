@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 
 // ===== ENV =====
-const AS400_INTERNAL_URL = process.env.AS400_INTERNAL_URL || 'http://localhost:5000/api/as400';
+const AS400_INTERNAL_URL = process.env.AS400_INTERNAL_URL;
 const JOB_TICKET_URL = process.env.JOB_TICKET_URL;
 const MACHINE_URL = process.env.MACHINE_URL;
 const PART_CONVERT_URL = process.env.PART_CONVERT_URL;
@@ -30,6 +30,27 @@ const getMachineList = () =>
         axios.get(`${MACHINE_URL}/N?processes=1520,1512`, { headers: { Authorization: API_TOKEN } })
             .then(r => r.data)
     );
+
+// ส่งผลตรวจ part (Y/N) ไป AS400 /checking — ใช้ทั้งกรณี part ตรง (A6) และ part ไม่ตรง (mismatch)
+const sendCheckingToAS400 = (machineList, { barcode, location, part_no }) => {
+    const machineRow = (machineList || []).find(m => m.machineNoProd === location);
+    const wosBarcode = machineRow?.wosBarcode || '';
+    // innerRingPart = materialType 2, outerRingPart = materialType 1
+    const materialType = machineRow?.innerRingPart === part_no ? '2' : '1';
+    const isPartMatch = machineRow
+        ? (machineRow.innerRingPart === part_no || machineRow.outerRingPart === part_no)
+        : false;
+    const checkResult = (wosBarcode && isPartMatch) ? 'Y' : 'N';
+
+    return axios.post(`${AS400_INTERNAL_URL}/checking`, {
+        barcode,
+        machine_no: location,
+        wos_barcode: wosBarcode,
+        jobtag: barcode,
+        check_result: checkResult,
+        material_type: materialType,
+    }).catch(err => console.error('[AS400] checking error:', err.message));
+};
 
 
 // =========================================================
@@ -302,25 +323,54 @@ router.post('/washing', async (req, res) => {
 
         const status = result.recordset[0]?.result ?? 'OK';
         if (status === 'LOT_WASHED') {
-            const lotResult = await pool.request()
-                .input('tag_id', sql.VarChar, tag_id)
-                .execute('Stored_tb_rfid_lot_select_by_tagid');
-            const lotData = lotResult.recordset[0];
-            await axios.post(`${AS400_INTERNAL_URL}/washing`, {
-                tag_id,
-                barcode: lotData?.barcode,
-                location: lotData?.location,
-                machine_no: location,
-                process_code: lotData?.process_code,
-                process: lotData?.process,
-                lot_data: lotData,
-            }).catch(err => console.error('[AS400] washing error:', err.message));
-            await new Promise(r => setTimeout(r, 5000));
-            await axios.post(`${AS400_INTERNAL_URL}/washing-result`, {
-                barcode: lotData?.barcode,
-                machine_no: machine_no || '',
-                production_qty: lotData?.quantity,
-            }).catch(err => console.error('[AS400] washing-result error:', err.message));
+            // เดิม await AS400 washing + sleep 5s + AS400 washing-result ตรงนี้ก่อนตอบกลับ
+            // ทำให้ response ช้าและอาจชน timeout ฝั่ง Python (httpx timeout=5s ที่ scan_loop washing)
+            // เปลี่ยนเป็น fire-and-forget ด้านล่างแทน ไม่ block response กลับไปแล้ว — คอมเมนต์ไว้เผื่อต้อง rollback
+            // const lotResult = await pool.request()
+            //     .input('tag_id', sql.VarChar, tag_id)
+            //     .execute('Stored_tb_rfid_lot_select_by_tagid');
+            // const lotData = lotResult.recordset[0];
+            // await axios.post(`${AS400_INTERNAL_URL}/washing`, {
+            //     tag_id,
+            //     barcode: lotData?.barcode,
+            //     location: lotData?.location,
+            //     machine_no: location,
+            //     process_code: lotData?.process_code,
+            //     process: lotData?.process,
+            //     lot_data: lotData,
+            // }).catch(err => console.error('[AS400] washing error:', err.message));
+            // await new Promise(r => setTimeout(r, 5000));
+            // await axios.post(`${AS400_INTERNAL_URL}/washing-result`, {
+            //     barcode: lotData?.barcode,
+            //     machine_no: machine_no || '',
+            //     production_qty: lotData?.quantity,
+            // }).catch(err => console.error('[AS400] washing-result error:', err.message));
+
+            (async () => {
+                try {
+                    const lotResult = await pool.request()
+                        .input('tag_id', sql.VarChar, tag_id)
+                        .execute('Stored_tb_rfid_lot_select_by_tagid');
+                    const lotData = lotResult.recordset[0];
+                    await axios.post(`${AS400_INTERNAL_URL}/washing`, {
+                        tag_id,
+                        barcode: lotData?.barcode,
+                        location: lotData?.location,
+                        machine_no: location,
+                        process_code: lotData?.process_code,
+                        process: lotData?.process,
+                        lot_data: lotData,
+                    }).catch(err => console.error('[AS400] washing error:', err.message));
+                    await new Promise(r => setTimeout(r, 5000));
+                    await axios.post(`${AS400_INTERNAL_URL}/washing-result`, {
+                        barcode: lotData?.barcode,
+                        machine_no: machine_no || '',
+                        production_qty: lotData?.quantity,
+                    }).catch(err => console.error('[AS400] washing-result error:', err.message));
+                } catch (bgErr) {
+                    console.error('[washing] background AS400 flow error:', bgErr.message);
+                }
+            })();
         }
         res.json({ result: status });
     } catch (err) {
@@ -380,7 +430,10 @@ router.post('/on-machine', async (req, res) => {
             m.machineNoProd === location &&
             partsToMatch.some(p => m.innerRingPart === p || m.outerRingPart === p)
         );
-        if (!matchedMachine) return res.json({ result: 'PART_MISMATCH' });
+        if (!matchedMachine) {
+            sendCheckingToAS400(machineList, { barcode: lotData.barcode, location, part_no: lotData.part_no });
+            return res.json({ result: 'PART_MISMATCH' });
+        }
 
         // 4. update DB
         const result = await pool.request()
@@ -393,6 +446,7 @@ router.post('/on-machine', async (req, res) => {
         // 5. ส่ง A5 AS400
         if (status === 'OK' || status === 'LOT_ON_MACHINE') {
             axios.post(`${AS400_INTERNAL_URL}/on-machine-in`, {
+                tag_id,
                 barcode: lotData.barcode,
                 machine_no: location || '',
                 production_qty: lotData.tray_qty,
@@ -419,20 +473,7 @@ router.post('/on-machine-checking', async (req, res) => {
             machineList = apiCache.get('machine-list')?.data || [];
         }
 
-        const machineRow = (machineList || []).find(m => m.machineNoProd === location);
-        const wosBarcode = machineRow?.wosBarcode || '';
-        // innerRingPart = materialType 2, outerRingPart = materialType 1
-        const materialType = machineRow?.innerRingPart === part_no ? '2' : '1';
-        const checkResult = wosBarcode ? 'Y' : 'N';
-
-        axios.post(`${AS400_INTERNAL_URL}/checking`, {
-            barcode,
-            machine_no: location,
-            wos_barcode: wosBarcode,
-            jobtag: barcode,
-            check_result: checkResult,
-            material_type: materialType,
-        }).catch(err => console.error('[AS400] checking error:', err.message));
+        sendCheckingToAS400(machineList, { barcode, location, part_no });
 
         res.json({ result: 'OK' });
     } catch (err) {
@@ -443,7 +484,7 @@ router.post('/on-machine-checking', async (req, res) => {
 // ดึง last on-machine event ของ tag
 router.get('/last-on-machine-event/:tagId', async (req, res) => {
     try {
-        const pool   = await poolPromise;
+        const pool = await poolPromise;
         const result = await pool.request()
             .input('tag_id', sql.VarChar, req.params.tagId)
             .execute('Stored_tb_rfid_last_on_machine_event');

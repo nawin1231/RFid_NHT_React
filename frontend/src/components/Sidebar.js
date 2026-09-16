@@ -35,7 +35,7 @@ const Sidebar = () => {
 
     const safeNavigate = (path) => {
         const basePath = path.split('?')[0];
-        const current = sessionStorage.getItem('allowed_path') || '/location-reader';
+        const current = sessionStorage.getItem('allowed_path') || '/dashboard';
         sessionStorage.setItem('prev_path', current);
         sessionStorage.setItem('allowed_path', basePath);
         navigate(path);

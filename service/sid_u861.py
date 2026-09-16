@@ -1,9 +1,20 @@
 import ctypes
 import os
 import time
+import sys
 
 # โหลด DLL 32-bit
-DLL_PATH = os.path.join(os.path.dirname(__file__), "SID_U861.dll")
+# DLL_PATH = os.path.join(os.path.dirname(__file__), "SID_U861.dll")
+if getattr(sys, 'frozen', False):
+    _BASE = os.path.dirname(sys.executable)
+    _INTERNAL = sys._MEIPASS
+else:
+    _BASE = os.path.dirname(os.path.abspath(__file__))
+    _INTERNAL = _BASE
+
+DLL_PATH = os.path.join(_BASE, "SID_U861.dll")
+if not os.path.exists(DLL_PATH):
+    DLL_PATH = os.path.join(_INTERNAL, "SID_U861.dll")
 dll = ctypes.WinDLL(DLL_PATH)
 
 # CONNECTION

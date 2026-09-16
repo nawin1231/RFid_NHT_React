@@ -34,10 +34,11 @@ READER_PALLET_LOCATION = CFG.get("location")
 MIN_QTY                = CFG.get("min_qty", 0)
 
 # Cooldown settings
-COOLDOWN             = 1   # วิ — กัน scan tag ซ้ำ
-PALLET_IN_COOLDOWN   = 10    # วิ — รอ tag ครบ lot ก่อน confirm pallet-in (go-live: 300)
-PALLET_OUT_COOLDOWN  = 10    # วิ — tag หาย นานเกินนี้ถือว่าออก
-MACHINE_OUT_COOLDOWN = 10    # วิ — tag หาย นานเกินนี้ถือว่าออก (go-live: 60)
+COOLDOWN             = 3   # วิ — กัน scan tag ซ้ำ
+PALLET_IN_COOLDOWN   = 30    # วิ — รอ tag ครบ lot ก่อน confirm pallet-in
+PALLET_OUT_COOLDOWN  = 60    # วิ — tag หาย นานเกินนี้ถือว่าออก
+MACHINE_OUT_COOLDOWN = 60    # วิ — tag หาย นานเกินนี้ถือว่าออก
+ACCUMULATED_TTL      = 45    # วิ — เก็บ tag ล่าสุดไว้ใน memory นานเท่าไหร่ (สำหรับ on_machine)
 
 # Process code ส่งไปให้ Node.js → Node.js lookup จาก tb_master_process
 PROCESS_MAPPING = {
@@ -47,7 +48,8 @@ PROCESS_MAPPING = {
 }
 READER_PROCESS_CODE = PROCESS_MAPPING.get(READER_TYPE, {}).get('process_code', '')
 
-NODE_URL = "http://localhost:5000/api/rfid"
+# NODE_URL = "http://10.128.17.252:1001/api/rfid"
+NODE_URL = "http://localhost:1001/api/rfid"
 
 # ===== STATE =====
 reader_state = {
@@ -81,6 +83,9 @@ lot_confirmed            = set()  # barcode ที่ส่ง pallet-in แล�
 scanning    = False
 scan_thread = None
 
+# lock กัน 2 thread ยิงคำสั่ง DLL ลง port_handle เดียวกันพร้อมกัน (ทำให้ reader หลุด Communication error)
+reader_lock = threading.Lock()
+
 # ===== ALARM =====
 alarm_active = False
 
@@ -88,7 +93,13 @@ def alarm_loop():
     """เสียง beep วนซ้ำตราบที่ alarm_active = True"""
     while alarm_active:
         winsound.Beep(2000, 500)
-        time.sleep(0.1)
+        time.sleep(0.5)
+
+def alarm_status_loop():
+    """print สถานะ alarm เป็น 0/1 ต่อเนื่องตลอดเวลา (สำหรับ debug)"""
+    while True:
+        # print(f"[ALARM] {1 if alarm_active else 0}")
+        time.sleep(5)
 
 def start_alarm():
     """เปิด alarm — beep + relay on → PLC สั่งลำโพง"""
@@ -96,14 +107,17 @@ def start_alarm():
     if not alarm_active:
         alarm_active = True
         threading.Thread(target=alarm_loop, daemon=True).start()
-        set_relay(0x01, reader_state["port_handle"])
+        with reader_lock:
+            set_relay(0x01, reader_state["port_handle"])
         print(f"[ALARM] ON")
 
 def stop_alarm():
-    """ปิด alarm — relay off"""
+    """ปิด alarm — relay off (ยิง DLL เฉพาะตอน alarm เคย active จริง กัน set_relay รัวทุก loop จนชนกับ inventory_g2)"""
     global alarm_active
-    alarm_active = False
-    set_relay(0x00, reader_state["port_handle"])
+    if alarm_active:
+        alarm_active = False
+        with reader_lock:
+            set_relay(0x00, reader_state["port_handle"])
 
 
 # ===== SCAN LOOP — register / washing =====
@@ -116,8 +130,15 @@ def scan_loop():
 
     while scanning:
         try:
-            tags = inventory_g2(reader_state["port_handle"])
-            reader_state["last_tags"] = tags
+            with reader_lock:
+                tags = inventory_g2(reader_state["port_handle"])
+            now  = time.time()
+            acc  = reader_state.get("accumulated_tags", {})
+            for tag in tags:
+                acc[tag] = now
+            acc = {t: ts for t, ts in acc.items() if now - ts < ACCUMULATED_TTL}
+            reader_state["accumulated_tags"] = acc
+            reader_state["last_tags"]        = list(acc.keys())
             now = time.time()
 
             if READER_TYPE == "register":
@@ -154,7 +175,7 @@ def scan_loop():
             reader_state["port_handle"] = -1
             scanning = False
             return
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 # ===== SCAN LOOP — on_machine =====
@@ -185,13 +206,39 @@ def scan_loop_on_machine():
                     tags_on_machine[tag] = now
 
                 # tag ใหม่เข้ามา
-                new_tags = current_tags - set(tags_on_machine.keys()) - rejected_tags
+                # new_tags = current_tags - set(tags_on_machine.keys()) - rejected_tags
+                # for tag in new_tags:
+                #     print(f"[{time.strftime('%H:%M:%S')}] [ON MACHINE] {tag}")
+                #     try:
+                #         check_res  = httpx.get(f"{NODE_URL}/last-on-machine-event/{tag}", timeout=5)
+                #         last_event = check_res.json().get("event_type", "")
+
+                #         if last_event == "ON_MACHINE_IN":
+                #             # restore memory ไม่ส่ง AS400 ซ้ำ
+                #             tags_disappeared_machine.pop(tag, None)
+                #             tags_on_machine[tag] = now
+                #             try:
+                #                 lot_res  = httpx.get(f"{NODE_URL}/lot-by-tag/{tag}", timeout=5)
+                #                 lot_data = lot_res.json()
+                #                 qty      = lot_data.get("data", {}).get("tray_qty", 0)
+                #                 tag_qty[tag]     = int(qty or 0)
+                #                 tag_barcode[tag] = lot_data.get("data", {}).get("barcode")
+                #                 tag_part_no[tag] = lot_data.get("data", {}).get("part_no")
+                #                 tag_rp[tag]      = lot_data.get("data", {}).get("rw_diameter")
+                #                 current_qty     += int(qty or 0)
+                #                 print(f"[on_machine] RESTORED {tag} qty={qty}")
+                #             except:
+                #                 pass
+                #             continue
+                accumulated_tags = set(reader_state.get("accumulated_tags", {}).keys())
+                new_tags = accumulated_tags - set(tags_on_machine.keys()) - rejected_tags
                 for tag in new_tags:
                     print(f"[{time.strftime('%H:%M:%S')}] [ON MACHINE] {tag}")
                     try:
+                        #------------------------------------------------------
                         check_res  = httpx.get(f"{NODE_URL}/last-on-machine-event/{tag}", timeout=5)
                         last_event = check_res.json().get("event_type", "")
-
+                        #------------------------------------------------------
                         if last_event == "ON_MACHINE_IN":
                             # restore memory ไม่ส่ง AS400 ซ้ำ
                             tags_disappeared_machine.pop(tag, None)
@@ -209,6 +256,7 @@ def scan_loop_on_machine():
                             except:
                                 pass
                             continue
+                        #------------------------------------------------------
                         res = httpx.post(f"{NODE_URL}/on-machine", json={
                             "tag_id":       tag,
                             "location":     READER_PALLET_LOCATION,
@@ -302,7 +350,7 @@ def scan_loop_on_machine():
                         stop_alarm()
 
                 # tag หายออก → เริ่มนับ cooldown
-                left_tags = set(tags_on_machine.keys()) - current_tags
+                left_tags = set(tags_on_machine.keys()) - set(reader_state.get("accumulated_tags", {}).keys())
                 for tag in left_tags:
                     if tag not in tags_disappeared_machine:
                         print(f"[{time.strftime('%H:%M:%S')}] [MACHINE MISSING] {tag} waiting {MACHINE_OUT_COOLDOWN}s")
@@ -343,7 +391,7 @@ def scan_loop_on_machine():
             except Exception as ex:
                 print(f"[scan_loop_on_machine] error: {ex}")
 
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 # ===== SCAN LOOP — completed =====
@@ -373,9 +421,7 @@ def scan_loop_completed():
                             print(f"[completed] LOT COMPLETED: {tag}")
                         elif result == "NOT_ON_MACHINE":
                             print(f"[completed] WARNING NOT_ON_MACHINE: {tag}")
-                            start_alarm()
                             time.sleep(1)
-                            stop_alarm()
                         elif result not in ("OK",):
                             print(f"[completed] WARNING {result}: {tag}")
                     except Exception as ex:
@@ -386,7 +432,7 @@ def scan_loop_completed():
         except Exception as ex:
             print(f"[scan_loop_completed] error: {ex}")
 
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 # ===== SCAN LOOP — pallet =====
@@ -434,7 +480,7 @@ def scan_loop_pallet():
             for barcode, tags in lot_tags.items():
                 if barcode in lot_confirmed:
                     continue
-                tags_present = tags & current_tags
+                tags_present = tags & (current_tags | set(tags_disappeared_pallet.keys()))
                 tray_counter = lot_tray_count.get(barcode, 0)
                 if len(tags_present) >= tray_counter and tray_counter > 0:
                     if barcode not in lot_confirmed_time:
@@ -503,7 +549,7 @@ def scan_loop_pallet():
         except Exception as ex:
             print(f"[scan_loop_pallet] error: {ex}")
 
-        time.sleep(1)
+        time.sleep(0.5)
 
 
 # ===== CONNECT & RECONNECT =====
@@ -523,7 +569,8 @@ def connect_reader():
     result, handle = open_net_port(READER_IP, READER_PORT_TCP)
     if result == 0:
         reader_state["port_handle"] = handle
-        set_power(READER_POWER, handle)
+        with reader_lock:
+            set_power(READER_POWER, handle)
         reader_state["connected"] = True
         scanning    = True
         scan_thread = threading.Thread(target=scan_loop, daemon=True)
@@ -557,6 +604,7 @@ def reconnect_loop():
 async def lifespan(app: FastAPI):
     print(f"Starting [{READER_TYPE}] @ {READER_IP} (index={READER_INDEX})")
     threading.Thread(target=reconnect_loop, daemon=True).start()
+    threading.Thread(target=alarm_status_loop, daemon=True).start()
     if READER_TYPE == "on_machine":
         threading.Thread(target=scan_loop_on_machine, daemon=True).start()
     if READER_TYPE == "pallet":
@@ -623,10 +671,11 @@ def restart_reader():
     """Restart uvicorn process ของ reader ตัวนี้"""
     def do_restart():
         time.sleep(1)
-        os.execv(sys.executable, [
-            sys.executable, '-m', 'uvicorn',
-            'main_dll:app', '--port', str(CFG['port']), '--log-level', 'warning'
-        ])
+        # os.execv(sys.executable, [
+        #     sys.executable, '-m', 'uvicorn',
+        #     'main_dll:app', '--port', str(CFG['port']), '--log-level', 'warning'
+        # ])
+        os._exit(0)
     threading.Thread(target=do_restart, daemon=True).start()
     return {"result": "OK"}
 
@@ -639,3 +688,19 @@ def get_alarm():
         "barcode": reader_state.get("alarm_barcode", ""),
         "part":    reader_state.get("alarm_part", ""),
     }
+
+@app.get("/test-relay-on")
+def test_relay_on():
+    with reader_lock:
+        result = set_relay(0x01, reader_state["port_handle"])
+    return {"status": 1, "result": result}
+
+@app.get("/test-relay-off")
+def test_relay_off():
+    with reader_lock:
+        result = set_relay(0x00, reader_state["port_handle"])
+    return {"status": 0, "result": result}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=CFG['port'], log_level="warning")

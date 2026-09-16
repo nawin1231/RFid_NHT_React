@@ -22,7 +22,7 @@ function App() {
     loadLocationPorts();
     // set default allowed path ตอนเปิดเว็บครั้งแรก
     if (!sessionStorage.getItem('allowed_path')) {
-      sessionStorage.setItem('allowed_path', '/location-reader');
+      sessionStorage.setItem('allowed_path', '/dashboard');
     }
   }, []);
 
@@ -33,11 +33,11 @@ function App() {
           <Route path="/" element={<Layout />}>
 
             {/* เข้า "/" redirect ไป "/location-reader" อัตโนมัติ */}
-            {/* <Route index element={<Navigate to="/dashboard" replace />} /> */}
+            <Route index element={<Navigate to="/dashboard" replace />} />
             {/* <Route index element={<Navigate to="/register" replace />} /> */}
             {/* <Route index element={<Navigate to="/multi-register" replace />} /> */}
             {/* <Route path="register" element={<Register />} /> */}
-            <Route index element={<Navigate to="/location-reader" replace />} />
+            {/* <Route index element={<Navigate to="/location-reader" replace />} /> */}
             <Route path="dashboard" element={<SecureRoute><Dashboard /></SecureRoute>} />
             <Route path="multi-register" element={<SecureRoute><MultiRegister /></SecureRoute>} />
             {/* <Route path="history" element={

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { backendApi } from '../../config/instance';
 import * as XLSX from 'xlsx';
+import { DownloadOutlined, FileExcelOutlined } from '@ant-design/icons';
 
 const STEPS = ['registered', 'before_washing', 'after_washing', 'on_machine'];
 
 const STEP_LABEL = {
+    waiting_register: 'Waiting Register',
     registered: 'Registered',
     before_washing: 'Before Washing',
     after_washing: 'After Washing',
@@ -37,6 +39,14 @@ const EVENT_MAP = {
     ON_MACHINE_IN: { tr: 'Receive', sign: 1 },
     ON_MACHINE_OUT: { tr: 'Issue', sign: -1 },
     CHECKING: { tr: '-', sign: 0 },
+};
+
+const formatDate = (str) => {
+    if (!str) return '-';
+    const s = str.replace('T', ' ').slice(0, 16);
+    const [date, time] = s.split(' ');
+    const [yyyy, mm, dd] = date.split('-');
+    return `${dd}/${mm}/${yyyy} ${time}`;
 };
 
 const toDateStr = (d) => d.toISOString().slice(0, 10);
@@ -139,7 +149,7 @@ const Dashboard = () => {
             'Tray Counter': h.tray_counter,
             Location: h.location,
             Status: h.status,
-            Date: (h.created_at || '').slice(0, 16),
+            Date: formatDate(h.created_at),
         }));
         const ws = XLSX.utils.json_to_sheet(rows);
         const wb = XLSX.utils.book_new();
@@ -258,7 +268,17 @@ const Dashboard = () => {
                                         <tr><td colSpan={8} className="text-center py-12 text-gray-300 text-sm">No active lots</td></tr>
                                     )}
                                     {lots.map((l, i) => (
-                                        <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                        // <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                        <tr
+                                            key={i}
+                                            title="Click to view movement"
+                                            className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors"
+                                            onClick={() => {
+                                                setMovementBarcode(l.barcode);
+                                                setTab('movement');
+                                                fetchMovement(l.barcode);
+                                            }}
+                                        >
                                             <td className="px-4 py-2.5 text-xs text-gray-700">{i + 1}</td>
                                             <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">{l.barcode}</td>
                                             <td className="px-4 py-2.5"><StepBadge step={l.sub_process} /></td>
@@ -266,7 +286,7 @@ const Dashboard = () => {
                                             <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{l.location}</td>
                                             <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(l.quantity ?? 0).toLocaleString()}</td>
                                             <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{l.tray_done}/{l.tray_counter}</td>
-                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{(l.updated_at || '').slice(0, 16)}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{formatDate(l.updated_at)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -327,9 +347,15 @@ const Dashboard = () => {
                                 History
                                 <span className="ml-2 text-xs font-normal text-blue-500">{filtered.length} records</span>
                             </p>
-                            <button onClick={handleExport}
+                            {/* <button onClick={handleExport}
                                 className="h-8 px-4 text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors font-medium">
                                 ↓ Export Excel
+                            </button> */}
+                            <button
+                                onClick={handleExport}
+                                className="h-8 px-3 text-base rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
+                            >
+                                <DownloadOutlined />  <FileExcelOutlined />
                             </button>
                         </div>
                         <div className="overflow-auto flex-1">
@@ -350,6 +376,7 @@ const Dashboard = () => {
                                     {pagedHistory.map((h, i) => (
                                         <tr
                                             key={i}
+                                            title="Click to view movement"
                                             className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer"
                                             onClick={() => {
                                                 setMovementBarcode(h.barcode);
@@ -366,7 +393,7 @@ const Dashboard = () => {
                                             <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(h.quantity ?? 0).toLocaleString()}</td>
                                             <td className="px-4 py-2.5 text-xs text-gray-500">{h.tray_counter}</td>
                                             <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{h.location}</td>
-                                            <td className="px-4 py-2.5 text-xs text-gray-400">{(h.created_at || '').slice(0, 16)}</td>
+                                            <td className="px-4 py-2.5 text-xs text-gray-400">{formatDate(h.created_at)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -425,7 +452,8 @@ const Dashboard = () => {
                         {/* lot info */}
                         {movementData?.lot && (
                             <div className="flex gap-4 mt-2 text-xs text-gray-500">
-                                <span>Part: <b className="text-gray-700">{movementData.lot.part_no}</b></span>
+                                <span>Part No: <b className="text-gray-700">{movementData.lot.part_no}</b></span>
+                                <span>Lot No: <b className="text-gray-700">{movementData.lot.lot_no}</b></span>
                                 <span>Qty: <b className="text-gray-700">{(movementData.lot.quantity ?? 0).toLocaleString()}</b></span>
                             </div>
                         )}
@@ -459,7 +487,7 @@ const Dashboard = () => {
                                             const ts = new Date(r.timestamp);
                                             return (
                                                 <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                                                    <td className="px-4 py-2.5 text-xs text-gray-500">{ts.toLocaleString('th-TH')}</td>
+                                                    <td className="px-4 py-2.5 text-xs text-gray-500">{formatDate(r.timestamp)}</td>
                                                     <td className={`px-4 py-2.5 text-xs font-semibold ${ev.tr === 'Receive' ? 'text-emerald-600' : ev.tr === 'Issue' ? 'text-red-400' : 'text-gray-400'}`}>
                                                         {ev.tr}
                                                     </td>

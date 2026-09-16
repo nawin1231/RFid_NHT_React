@@ -11,7 +11,7 @@ const SecureRoute = ({ children, requireAuth = false }) => {
 
     // ป้องกันพิมพ์ URL ตรง
     useEffect(() => {
-        const allowed = sessionStorage.getItem('allowed_path') || '/location-reader';
+        const allowed = sessionStorage.getItem('allowed_path') || '/dashboard';
         if (location.pathname !== allowed && !(requireAuth)) {
             navigate(allowed, { replace: true });
         }
@@ -33,7 +33,7 @@ const SecureRoute = ({ children, requireAuth = false }) => {
                     <LoginModal
                         onSuccess={() => setShowModal(false)}
                         onClose={() => {
-                            const prev = sessionStorage.getItem('prev_path') || '/location-reader';
+                            const prev = sessionStorage.getItem('prev_path') || '/dashboard';
                             sessionStorage.setItem('allowed_path', prev);
                             setShowModal(false);
                             navigate(prev, { replace: true });

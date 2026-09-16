@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { backendApi, washingApi } from '../../config/instance';
+import API from '../../config/constances';
 // import { backendApi, pythonApi } from '../../config/instance';
 import { useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
@@ -55,7 +56,7 @@ const MachineValidate = () => {
             const ports = res.data;
             const config = location ? ports[location] : null;
             if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `http://localhost:${config.port}` }));
+                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
             } else {
                 setDeviceApi(() => washingApi);
             }
@@ -99,6 +100,17 @@ const MachineValidate = () => {
         if (location) localStorage.setItem('rfid_location_washing', location);
     }, [location]);
 
+    // ดึงจำนวน tray ที่ผ่าน washing แล้ว — retry ถ้า DB ยังไม่ update ทัน
+    const fetchTrayCount = async (barcode) => {
+        for (let i = 0; i < 5; i++) {
+            const countRes = await backendApi.get(`/tray_count/${barcode}`);
+            const done = countRes.data.after_washing_done ?? 0;
+            if (done > 0) return done;
+            await new Promise(r => setTimeout(r, 500));
+        }
+        return 0;
+    };
+
     const fetchLotInfo = async (tag) => {
         setLoading(true);
         try {
@@ -120,8 +132,11 @@ const MachineValidate = () => {
             setTagId(tag);
 
             // นับ tray ที่ผ่าน after_washing แล้วใน lot นี้
-            const countRes = await backendApi.get(`/tray_count/${data.barcode}`);
-            const done = countRes.data.after_washing_done ?? 0;
+            // const countRes = await backendApi.get(`/tray_count/${data.barcode}`);
+            // const done = countRes.data.after_washing_done ?? 0;
+            // setTrayDone(done);
+
+            const done = await fetchTrayCount(data.barcode);
             setTrayDone(done);
 
             // ครบทุก tray แสดง machine list
@@ -350,7 +365,7 @@ const MachineValidate = () => {
                             onClick={() => {
                                 setMachineList(h.machineList)
                                 setSelectedBarcode(h.barcode)
-                                setLotInfo({ barcode: h.barcode, part_no: h.part_no, tray_counter: h.tray_counter,rw_diameter: h.rw_diameter, })
+                                setLotInfo({ barcode: h.barcode, part_no: h.part_no, tray_counter: h.tray_counter, rw_diameter: h.rw_diameter, })
                                 setTrayDone(h.tray_counter)
                             }}
                             className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs transition-colors

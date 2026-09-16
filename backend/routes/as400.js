@@ -7,6 +7,7 @@ const AS400_MOVEMENT_URL = process.env.AS400_MOVEMENT_URL;
 const AS400_PRODUCTION_RESULT_URL = process.env.AS400_PRODUCTION_RESULT_URL;
 const API_CHECKING_URL = process.env.API_CHECKING_URL;
 const API_TOKEN = process.env.API_TOKEN;
+const AS400_TIMEOUT_MS = 8000;
 
 // trackId format: process+location_DDMMYYYY_jobtag
 const generateTrackId = (process, location, jobtag) => {
@@ -29,6 +30,7 @@ const logToDB = async (pool, eventType, apiType, payload) => {
         .input('process', sql.VarChar, payload.process || null)
         .input('location', sql.VarChar, payload.location || null)
         .input('production_qty', sql.Int, payload.production_qty || null)
+        .input('tag_id', sql.VarChar, payload.tag_id || null)
         .execute('Stored_tb_rfid_as400_log_insert');
     return result.recordset[0].id;
 };
@@ -48,7 +50,7 @@ const sendMovement = async (pool, logId, body) => {
     try {
         const axiosRes = await axios.post(`${AS400_MOVEMENT_URL}`, [body], {
             headers: { Authorization: API_TOKEN },
-            timeout: 3000,
+            timeout: AS400_TIMEOUT_MS,
         });
         // 207 = processed with some errors
         if (axiosRes.status === 207) {
@@ -61,7 +63,7 @@ const sendMovement = async (pool, logId, body) => {
         const errMsg = isTimeout ? null : (apiErr.response?.data
             ? JSON.stringify(apiErr.response.data)
             : apiErr.message);
-        const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+        const resMsg = isTimeout ? `timeout of ${AS400_TIMEOUT_MS}ms exceeded` : null;
         await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
     }
     // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
@@ -93,7 +95,6 @@ router.post('/pallet-in', async (req, res) => {
         });
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] pallet-in error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -130,7 +131,6 @@ router.post('/pallet-out', async (req, res) => {
         });
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] pallet-out error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -161,7 +161,6 @@ router.post('/washing', async (req, res) => {
         });
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] washing error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -192,7 +191,7 @@ router.post('/washing-result', async (req, res) => {
                 timestamp: new Date().toISOString(),
             }], {
                 headers: { Authorization: API_TOKEN },
-                timeout: 3000,
+                timeout: AS400_TIMEOUT_MS,
             });
             if (axiosRes.status === 207) {
                 await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
@@ -204,13 +203,12 @@ router.post('/washing-result', async (req, res) => {
             const errMsg = isTimeout ? null : (apiErr.response?.data
                 ? JSON.stringify(apiErr.response.data)
                 : apiErr.message);
-            const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+            const resMsg = isTimeout ? `timeout of ${AS400_TIMEOUT_MS}ms exceeded` : null;
             await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
         }
         // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] washing-result error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -218,7 +216,7 @@ router.post('/washing-result', async (req, res) => {
 // A5 — ON MACHINE IN (MOVE_IN 1520 BF) ทีละ tag
 router.post('/on-machine-in', async (req, res) => {
     try {
-        const { barcode, machine_no, production_qty, process_code } = req.body;
+        const { tag_id, barcode, machine_no, production_qty, process_code } = req.body;
         const pool = await poolPromise;
         const payload = {
             track_id: generateTrackId(process_code || '1520', 'BF', barcode),
@@ -228,6 +226,7 @@ router.post('/on-machine-in', async (req, res) => {
             process: process_code || '1520',
             location: 'BF',
             production_qty: production_qty,
+            tag_id: tag_id || null,
         };
         const logId = await logToDB(pool, 'ON_MACHINE_IN', 'movement', payload);
         await sendMovement(pool, logId, {
@@ -242,7 +241,6 @@ router.post('/on-machine-in', async (req, res) => {
         });
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] on-machine-in error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -272,7 +270,7 @@ router.post('/checking', async (req, res) => {
         try {
             const axiosRes = await axios.post(`${API_CHECKING_URL}`, payload, {
                 headers: { Authorization: API_TOKEN },
-                timeout: 3000,
+                timeout: AS400_TIMEOUT_MS,
             });
             if (axiosRes.status === 207) {
                 await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
@@ -284,13 +282,12 @@ router.post('/checking', async (req, res) => {
             const errMsg = isTimeout ? null : (apiErr.response?.data
                 ? JSON.stringify(apiErr.response.data)
                 : apiErr.message);
-            const resMsg = isTimeout ? 'timeout of 3000ms exceeded' : null;
+            const resMsg = isTimeout ? `timeout of ${AS400_TIMEOUT_MS}ms exceeded` : null;
             await updateStatus(pool, logId, isTimeout ? 'SUCCESS' : 'ERROR', errMsg, resMsg);
         }
         // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] checking error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -308,6 +305,7 @@ router.post('/on-machine-out', async (req, res) => {
             process: '1520',
             location: 'BF',
             production_qty: qty,
+            tag_id: tag_id || null,
         };
         const logId = await logToDB(pool, 'ON_MACHINE_OUT', 'movement', payload);
         await sendMovement(pool, logId, {
@@ -322,7 +320,6 @@ router.post('/on-machine-out', async (req, res) => {
         });
         res.json({ result: 'OK' });
     } catch (err) {
-        console.error('[AS400] on-machine-out error:', err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -344,6 +341,7 @@ const retryErrors = async () => {
                     jobtag: row.jobtag,
                     process: row.process,
                     location: row.location,
+                    qty: row.production_qty,
                     timestamp: new Date().toISOString(),
                 });
             } else if (row.api_type === 'production-result') {
@@ -356,7 +354,7 @@ const retryErrors = async () => {
                         productionQty: row.production_qty,
                         ngQty: 0,
                         timestamp: new Date().toISOString(),
-                    }], { headers: { Authorization: API_TOKEN }, timeout: 3000 });
+                    }], { headers: { Authorization: API_TOKEN }, timeout: AS400_TIMEOUT_MS });
                     await updateStatus(pool, row.id,
                         axiosRes.status === 207 ? 'ERROR' : 'SUCCESS',
                         null, JSON.stringify(axiosRes.data));
@@ -365,7 +363,7 @@ const retryErrors = async () => {
                     await updateStatus(pool, row.id,
                         isTimeout ? 'SUCCESS' : 'ERROR',
                         isTimeout ? null : JSON.stringify(apiErr.response?.data || apiErr.message),
-                        isTimeout ? 'timeout of 3000ms exceeded' : null);
+                        isTimeout ? `timeout of ${AS400_TIMEOUT_MS}ms exceeded` : null);
                 }
             }
         }

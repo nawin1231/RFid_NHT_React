@@ -1,4 +1,5 @@
 const sql = require('mssql/msnodesqlv8');
+// const sql = require('mssql');
 
 const dbConfig = {
     server: 'PBSY70\\SQLEXPRESS',
@@ -11,24 +12,23 @@ const dbConfig = {
 };
 
 // const dbConfig = {
-//     server: '10.120.139.25',
+//     server: '10.128.17.252',
 //     database: 'db_nht_washing_rfid_1',
-//     driver: 'msnodesqlv8',
-//     user:     process.env.DB_USER,
-//     password: process.env.DB_PASSWORD,
+//     user:     'sa',
+//     password: 'RFIDsa@admin',
+//     port:     1433,
 //     options: {
-//         trustedConnection:      false,
-//         trustServerCertificate: true
+//         trustServerCertificate: true,
+//         enableArithAbort:       true,
 //     }
 // };
 
-const poolPromise = new sql.ConnectionPool(dbConfig)
-    .connect()
-    .then(pool => {
-        return pool;
-    })
-    .catch(err => {
-        console.error('Connection error:', err);
-    });
+const pool = new sql.ConnectionPool(dbConfig);
+
+const poolPromise = pool.connect().then(() => {
+    return pool;
+}).catch(err => {
+    process.exit(1);
+});
 
 module.exports = { sql, poolPromise };
