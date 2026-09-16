@@ -1,391 +1,522 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { backendApi } from '../../config/instance';
+import * as XLSX from 'xlsx';
+import { DownloadOutlined, FileExcelOutlined } from '@ant-design/icons';
 
-// ---- CONSTANTS ----
-
-const STEPS = ['registered', 'before_washing', 'after_washing', 'on_machine', 'completed'];
+const STEPS = ['registered', 'before_washing', 'after_washing', 'on_machine'];
 
 const STEP_LABEL = {
+    waiting_register: 'Waiting Register',
     registered: 'Registered',
-    before_washing: 'Before washing',
-    after_washing: 'After washing',
-    on_machine: 'On machine',
+    before_washing: 'Before Washing',
+    after_washing: 'After Washing',
+    on_machine: 'On Machine',
     completed: 'Completed',
 };
 
-// สีแต่ละ step ใช้ทั้ง bar chart และ progress bar
-const STEP_COLOR = {
-    registered: '#2a78d6',
-    before_washing: '#eda100',
-    after_washing: '#1baf7a',
-    on_machine: '#4a3aa7',
-    completed: '#008300',
+const STEP_BADGE = {
+    registered: { bg: 'bg-blue-100', text: 'text-blue-600' },
+    before_washing: { bg: 'bg-amber-100', text: 'text-amber-600' },
+    after_washing: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
+    on_machine: { bg: 'bg-violet-100', text: 'text-violet-600' },
+    completed: { bg: 'bg-gray-100', text: 'text-gray-500' },
 };
 
-// ---- HELPER ----
+const STEP_COLOR = {
+    registered: 'text-blue-400',
+    before_washing: 'text-amber-400',
+    after_washing: 'text-emerald-400',
+    on_machine: 'text-violet-400',
+};
 
-// แปลง date object เป็น YYYY-MM-DD สำหรับ input date
+const EVENT_MAP = {
+    PALLET_IN: { tr: 'Receive', sign: 1 },
+    PALLET_OUT: { tr: 'Issue', sign: -1 },
+    WASHING_RUN: { tr: 'Receive', sign: 1 },
+    WASHING_RESULT: { tr: 'Issue', sign: -1 },
+    STOR_IN: { tr: 'Receive', sign: 1 },
+    STOR_OUT: { tr: 'Issue', sign: -1 },
+    ON_MACHINE_IN: { tr: 'Receive', sign: 1 },
+    ON_MACHINE_OUT: { tr: 'Issue', sign: -1 },
+    CHECKING: { tr: '-', sign: 0 },
+};
+
+const formatDate = (str) => {
+    if (!str) return '-';
+    const s = str.replace('T', ' ').slice(0, 16);
+    const [date, time] = s.split(' ');
+    const [yyyy, mm, dd] = date.split('-');
+    return `${dd}/${mm}/${yyyy} ${time}`;
+};
+
 const toDateStr = (d) => d.toISOString().slice(0, 10);
-
 const today = toDateStr(new Date());
+const PAGE_SIZE = 20;
 
-// ---- SUB COMPONENTS ----
+const defaultFilter = { barcode: '', part_no: '', sub_process: '', date_from: '', date_to: '' };
 
-// KPI card แสดงตัวเลข summary
-const KpiCard = ({ label, value, sub }) => (
-    <div style={{
-        background: 'var(--surface-1)', border: '0.5px solid var(--border)',
-        borderRadius: 'var(--radius)', padding: '10px 12px',
-    }}>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
-        <div style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)' }}>{value}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{sub}</div>
-    </div>
-);
-
-// Badge แสดง sub_process ด้วยสี
 const StepBadge = ({ step }) => {
-    const bg = {
-        registered: '#e6f1fb', before_washing: '#faeeda',
-        after_washing: '#e1f5ee', on_machine: '#eeedfe', completed: '#eaf3de',
-    };
-    const color = {
-        registered: '#0c447c', before_washing: '#633806',
-        after_washing: '#085041', on_machine: '#26215c', completed: '#173404',
-    };
+    const b = STEP_BADGE[step] || { bg: 'bg-gray-100', text: 'text-gray-500' };
     return (
-        <span style={{
-            fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 99,
-            background: bg[step] || '#f0f0f0', color: color[step] || '#333',
-        }}>
+        <span className={`text-xs px-2.5 py-1 rounded-full font-semibold ${b.bg} ${b.text}`}>
             {STEP_LABEL[step] || step}
         </span>
     );
 };
 
-// Progress bar แสดง tray_done / tray_counter
-const TrayProgress = ({ done, total, step }) => {
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{
-                flex: 1, height: 5, background: 'var(--border)',
-                borderRadius: 99, overflow: 'hidden',
-            }}>
-                <div style={{
-                    width: `${pct}%`, height: '100%',
-                    background: STEP_COLOR[step] || '#888',
-                    borderRadius: 99, transition: 'width .4s',
-                }} />
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 50, textAlign: 'right' }}>
-                {done}/{total} tray
-            </span>
-        </div>
-    );
-};
-
-// ---- MONITOR TAB ----
-const MonitorTab = ({ lots, summary }) => {
-    // คำนวณ KPI จาก lots ที่ได้จาก SP
-    const trayDone = lots.reduce((a, l) => a + (l.tray_done || 0), 0);
-    const trayTotal = lots.reduce((a, l) => a + (l.tray_counter || 0), 0);
-    const countBy = (step) => lots.filter(l => l.sub_process === step).length;
-
-    // นับ lot แต่ละ step จาก summary recordset
-    const maxCount = Math.max(...(summary || []).map(s => s.lot_count), 1);
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-            {/* KPI Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 8 }}>
-                <KpiCard label="Active lots" value={lots.length} sub="Ongoing" />
-                <KpiCard label="Tray done" value={trayDone} sub={`of ${trayTotal} total`} />
-                <KpiCard label="After washing" value={countBy('after_washing')} sub="Ready" />
-                <KpiCard label="On machine" value={countBy('on_machine')} sub="Active" />
-                <KpiCard label="Before washing" value={countBy('before_washing')} sub="Waiting" />
-            </div>
-
-            {/* Charts */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-
-                {/* Lots by step */}
-                <div style={{ background: 'var(--surface-1)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
-                        Lots by step
-                    </div>
-                    {STEPS.map(s => {
-                        const row = (summary || []).find(r => r.sub_process === s);
-                        const count = row?.lot_count || 0;
-                        return (
-                            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                <span style={{ fontSize: 11, color: 'var(--text-secondary)', width: 90, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {STEP_LABEL[s]}
-                                </span>
-                                <div style={{ flex: 1, height: 7, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
-                                    <div style={{ width: `${Math.round(count / maxCount * 100)}%`, height: '100%', background: STEP_COLOR[s], borderRadius: 99 }} />
-                                </div>
-                                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)', width: 20, textAlign: 'right' }}>{count}</span>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                {/* Tray progress by lot */}
-                <div style={{ background: 'var(--surface-1)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', padding: 12 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 10 }}>
-                        Tray progress by lot
-                    </div>
-                    {lots.map((l, i) => {
-                        const pct = l.tray_counter > 0 ? Math.round((l.tray_done / l.tray_counter) * 100) : 0;
-                        return (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                                <span style={{ fontSize: 10, color: 'var(--text-secondary)', width: 90, fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                    {l.barcode}
-                                </span>
-                                <div style={{ flex: 1, height: 7, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
-                                    <div style={{ width: `${pct}%`, height: '100%', background: STEP_COLOR[l.sub_process], borderRadius: 99, transition: 'width .4s' }} />
-                                </div>
-                                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-primary)', width: 32, textAlign: 'right' }}>
-                                    {l.tray_done}/{l.tray_counter}
-                                </span>
-                            </div>
-                        );
-                    })}
-                    {lots.length === 0 && <div style={{ textAlign: 'center', padding: 24, fontSize: 12, color: 'var(--text-muted)' }}>No active lots</div>}
-                </div>
-            </div>
-
-            {/* Lot list */}
-            <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>
-                Active lots
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {lots.map((l, i) => (
-                    <div key={i} style={{
-                        background: 'var(--surface-2)', border: '0.5px solid var(--border)',
-                        borderRadius: 'var(--radius)', padding: '10px 14px',
-                        display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center',
-                    }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>
-                                    {l.barcode}
-                                </span>
-                                <StepBadge step={l.sub_process} />
-                                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{l.part_no}</span>
-                            </div>
-                            <TrayProgress done={l.tray_done} total={l.tray_counter} step={l.sub_process} />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3 }}>
-                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                                {l.location}{l.machine_no ? ` · ${l.machine_no}` : ''}
-                            </span>
-                            <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-                                {l.process_code} · {l.process}
-                            </span>
-                        </div>
-                    </div>
-                ))}
-                {lots.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--text-muted)' }}>
-                        No active lots
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
-
-// ---- HISTORY TAB ----
-const HistoryTab = ({ history }) => {
-    const [dateFrom, setDateFrom] = useState(today);
-    const [dateTo, setDateTo] = useState(today);
-    const [subFilter, setSubFilter] = useState('');
-    const [partFilter, setPartFilter] = useState('');
-    const [search, setSearch] = useState('');
-
-    // parts ที่มีใน history สำหรับ dropdown
-    const parts = [...new Set(history.map(h => h.part_no))].filter(Boolean);
-
-    // filter history ฝั่ง frontend
-    const filtered = history.filter(h => {
-        const d = (h.created_at || '').slice(0, 10);
-        if (dateFrom && d < dateFrom) return false;
-        if (dateTo && d > dateTo) return false;
-        if (subFilter && h.sub_process !== subFilter) return false;
-        if (partFilter && h.part_no !== partFilter) return false;
-        if (search && !(h.barcode || '').toLowerCase().includes(search.toLowerCase())) return false;
-        return true;
-    });
-
-    const inputStyle = {
-        height: 32, fontSize: 12, padding: '0 10px',
-        border: '0.5px solid var(--border)', borderRadius: 'var(--radius)',
-        background: 'var(--surface-2)', color: 'var(--text-primary)', outline: 'none',
-    };
-
-    const thStyle = {
-        textAlign: 'left', padding: '8px 10px', fontSize: 11,
-        fontWeight: 500, color: 'var(--text-muted)',
-        borderBottom: '0.5px solid var(--border)', whiteSpace: 'nowrap',
-    };
-
-    const tdStyle = { padding: '8px 10px', borderBottom: '0.5px solid var(--border)', fontSize: 12, color: 'var(--text-primary)' };
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-            {/* Filter row */}
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={inputStyle} />
-                <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={inputStyle} />
-                <select value={subFilter} onChange={e => setSubFilter(e.target.value)} style={inputStyle}>
-                    <option value="">All steps</option>
-                    {STEPS.map(s => <option key={s} value={s}>{STEP_LABEL[s]}</option>)}
-                </select>
-                <select value={partFilter} onChange={e => setPartFilter(e.target.value)} style={inputStyle}>
-                    <option value="">All parts</option>
-                    {parts.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <input
-                    type="text" placeholder="Search barcode..."
-                    value={search} onChange={e => setSearch(e.target.value)}
-                    style={{ ...inputStyle, width: 160 }}
-                />
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{filtered.length} records</span>
-            </div>
-
-            {/* Table */}
-            <div style={{ background: 'var(--surface-2)', border: '0.5px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead style={{ background: 'var(--surface-1)' }}>
-                        <tr>
-                            {['Barcode', 'Step', 'Part no', 'Process code', 'Process', 'Tray', 'Location', 'Operator', 'Date'].map(col => (
-                                <th key={col} style={thStyle}>{col}</th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filtered.length === 0 && (
-                            <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, fontSize: 12, color: 'var(--text-muted)' }}>No records found</td></tr>
-                        )}
-                        {filtered.map((h, i) => (
-                            <tr key={i}>
-                                <td style={{ ...tdStyle, fontFamily: 'var(--font-mono)' }}>{h.barcode}</td>
-                                <td style={tdStyle}><StepBadge step={h.sub_process} /></td>
-                                <td style={tdStyle}>{h.part_no}</td>
-                                <td style={{ ...tdStyle, fontFamily: 'var(--font-mono)' }}>{h.process_code}</td>
-                                <td style={{ ...tdStyle, fontSize: 11 }}>{h.process}</td>
-                                <td style={tdStyle}>{h.tray_done}/{h.tray_counter}</td>
-                                <td style={{ ...tdStyle, fontFamily: 'var(--font-mono)' }}>{h.location}</td>
-                                <td style={tdStyle}>{h.operator || '—'}</td>
-                                <td style={{ ...tdStyle, fontSize: 11, color: 'var(--text-muted)' }}>{(h.created_at || '').slice(0, 16)}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
-};
-
-// ---- MAIN COMPONENT ----
 const Dashboard = () => {
-    const [tab, setTab] = useState('monitor'); // tab ที่เปิดอยู่
-    const [lots, setLots] = useState([]);         // lot Ongoing สำหรับ monitor
-    const [summary, setSummary] = useState([]);         // summary แยก sub_process
-    const [history, setHistory] = useState([]);         // log history
-    const [loading, setLoading] = useState(true);
+    const [lastRefresh, setLastRefresh] = useState(null);
+    const [filter, setFilter] = useState(defaultFilter);
+    const [summary, setSummary] = useState([]);
+    const [lots, setLots] = useState([]);
+    const [history, setHistory] = useState([]);
+    const [movementBarcode, setMovementBarcode] = useState('');
+    const [movementData, setMovementData] = useState(null);
+    const [movementLoading, setMovementLoading] = useState(false);
+    const [tab, setTab] = useState('monitor');
+    const [page, setPage] = useState(1);
+    const [loading, setLoading] = useState(false);
+    const intervalRef = useRef(null);
 
-    // ดึงข้อมูล monitor (poll ทุก 5 วิ)
-    const fetchMonitor = useCallback(async () => {
+    const fetchMonitor = async () => {
         try {
             const res = await backendApi.get('/dashboard');
-            setSummary(Array.isArray(res.data.summary) ? res.data.summary : []);
+            setSummary(res.data.summary || []);
             setLots(res.data.lots || []);
-        } catch { }
-        setLoading(false);
-    }, []);
+            setLastRefresh(new Date());
+        } catch (err) {
+            console.error(err);
+        }
+    };
 
-    // ดึง history แยกต่างหาก เรียกครั้งแรกและเมื่อ user เปลี่ยน tab มา history
-    const fetchHistory = useCallback(async () => {
+    const fetchHistory = async (f = filter) => {
+        setLoading(true);
         try {
-            const res = await backendApi.get('/dashboard', {
-                params: { date_from: today, date_to: today }
-            });
+            const res = await backendApi.get('/dashboard', { params: { date_from: f.date_from || today, date_to: f.date_to || today } });
             setHistory(res.data.history || []);
-        } catch { }
-    }, []);
+            setPage(1);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchMovement = async (barcode) => {
+        if (!barcode) return;
+        setMovementLoading(true);
+        try {
+            const res = await backendApi.get(`/dashboard/${barcode}`);
+            setMovementData(res.data);
+        } catch {
+            setMovementData(null);
+        } finally {
+            setMovementLoading(false);
+        }
+    };
 
     useEffect(() => {
         fetchMonitor();
         fetchHistory();
-        // poll monitor ทุก 5 วิ
-        const interval = setInterval(fetchMonitor, 5000);
-        return () => clearInterval(interval);
-    }, [fetchMonitor, fetchHistory]);
+        intervalRef.current = setInterval(fetchMonitor, 3 * 60 * 1000);
+        return () => clearInterval(intervalRef.current);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
+    const handleChange = (e) => setFilter({ ...filter, [e.target.name]: e.target.value });
+    const handleSearch = () => fetchHistory(filter);
+    const handleReset = () => { setFilter(defaultFilter); fetchHistory(defaultFilter); };
+
+    // filter history ฝั่ง frontend
+    const filtered = history.filter(h => {
+        if (filter.barcode && !(h.barcode || '').toLowerCase().includes(filter.barcode.toLowerCase())) return false;
+        if (filter.part_no && !(h.part_no || '').toLowerCase().includes(filter.part_no.toLowerCase())) return false;
+        if (filter.sub_process && h.sub_process !== filter.sub_process) return false;
+        return true;
+    });
+
+    const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+    const pagedHistory = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+    const handleExport = () => {
+        const rows = filtered.map(h => ({
+            Barcode: h.barcode,
+            'Sub Process': STEP_LABEL[h.sub_process] || h.sub_process,
+            'Part No.': h.part_no,
+            'Process Code': h.process_code,
+            Process: h.process,
+            Quantity: h.quantity,
+            'Tray Counter': h.tray_counter,
+            Location: h.location,
+            Status: h.status,
+            Date: formatDate(h.created_at),
+        }));
+        const ws = XLSX.utils.json_to_sheet(rows);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Dashboard');
+        XLSX.writeFile(wb, `dashboard_${today}.xlsx`);
+    };
+
+    const inputCls = "h-9 px-3 text-sm border border-gray-200 rounded-lg bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400";
+
+    // KPI: qty แยกตาม sub_process จาก summary
+    const getQty = (step) => (summary.find(s => s.sub_process === step)?.total_qty ?? 0).toLocaleString();
+
+    const expandRows = (rows, lotQty) => {
+        if (!rows) return [];
+        const result = [];
+
+        let storIssued = false; // Issue STOR เกิดแค่ครั้งเดียว
+
+        rows.forEach(r => {
+            if (r.event_type === 'WASHING_RESULT') {
+                // Issue 1201 RUN ก่อน
+                result.push(r);
+                // Receive STOR BF
+                result.push({
+                    ...r, event_type: 'STOR_IN',
+                    process: 'STOR',
+                    location: 'BF'
+                });
+
+            } else if (r.event_type === 'ON_MACHINE_IN') {
+                // Issue STOR ครั้งเดียวก่อน tag แรก
+                if (!storIssued) {
+                    result.push({
+                        ...r,
+                        event_type: 'STOR_OUT',
+                        process: 'STOR',
+                        location: 'BF',
+                        production_qty: lotQty,
+                    });
+                    storIssued = true;
+                }
+                // Receive 1520 BF ทีละ tag
+                result.push(r);
+
+            } else if (r.event_type === 'CHECKING') return;
+            else {
+                result.push(r);
+            }
+        });
+
+        return result;
+    };
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, height: '100%' }}>
+        <div className="flex flex-col gap-3 h-full">
 
-            {/* Header: tabs + live indicator */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div style={{ display: 'flex', borderBottom: '0.5px solid var(--border)' }}>
+            {/* TABS */}
+            <div className="flex items-center justify-between">
+                <div className="flex gap-1">
                     {[
-                        { key: 'monitor', label: 'Monitor', count: lots.length },
-                        { key: 'history', label: 'History', count: history.length },
+                        { key: 'monitor', label: 'Monitor' },
+                        { key: 'history', label: 'History' },
+                        { key: 'movement', label: 'Movement' },
                     ].map(t => (
-                        <div
+                        <button
                             key={t.key}
                             onClick={() => setTab(t.key)}
-                            style={{
-                                fontSize: 12, padding: '8px 16px', cursor: 'pointer',
-                                color: tab === t.key ? 'var(--text-primary)' : 'var(--text-muted)',
-                                borderBottom: tab === t.key ? '2px solid var(--text-primary)' : '2px solid transparent',
-                                fontWeight: tab === t.key ? 500 : 400,
-                                display: 'flex', alignItems: 'center', gap: 6, marginBottom: -1,
-                            }}
+                            className={`px-4 py-1.5 text-sm rounded-lg font-medium transition-colors ${tab === t.key ? 'bg-gray-900 text-white' : 'text-gray-400 hover:text-gray-600'}`}
                         >
                             {t.label}
-                            <span style={{
-                                fontSize: 10, padding: '1px 6px', borderRadius: 99,
-                                background: tab === t.key ? 'var(--text-primary)' : 'var(--surface-1)',
-                                color: tab === t.key ? 'var(--surface-2)' : 'var(--text-secondary)',
-                                border: '0.5px solid var(--border)',
-                            }}>
-                                {t.count}
-                            </span>
-                        </div>
+                        </button>
                     ))}
                 </div>
-
-                {/* Live pill — แสดงว่ากำลัง poll อยู่ */}
-                <span style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                    fontSize: 10, color: 'var(--text-success)',
-                    background: 'var(--bg-success)', borderRadius: 99, padding: '2px 8px',
-                }}>
-                    <span style={{
-                        display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-                        background: 'var(--text-success)',
-                        animation: 'pulse 2s infinite',
-                    }} />
-                    live · 5s
-                </span>
+                {lastRefresh && (
+                    <p className="text-xs text-gray-400">Updated {lastRefresh.toLocaleTimeString('th-TH')}</p>
+                )}
             </div>
 
-            {/* CSS animation สำหรับ live pulse */}
-            <style>{`@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}`}</style>
-
-            {/* Content */}
-            {loading ? (
-                <div style={{ textAlign: 'center', padding: 48, fontSize: 12, color: 'var(--text-muted)' }}>Loading...</div>
-            ) : (
+            {/* MONITOR TAB */}
+            {tab === 'monitor' && (
                 <>
-                    {tab === 'monitor' && <MonitorTab lots={lots} summary={summary} />}
-                    {tab === 'history' && <HistoryTab history={history} />}
+                    {/* KPI — dark bg */}
+                    <div className="bg-gray-900 rounded-xl px-6 py-4 flex items-center gap-6 shrink-0">
+                        {STEPS.map((step, i, arr) => (
+                            <React.Fragment key={step}>
+                                <div className="flex-1">
+                                    <p className="text-xs font-semibold text-gray-400 tracking-widest uppercase">{STEP_LABEL[step]}</p>
+                                    <p className={`text-4xl font-bold mt-1 ${STEP_COLOR[step]}`}>{getQty(step)}</p>
+                                    <p className="text-xs text-gray-500 mt-1">Qty</p>
+                                </div>
+                                {i < arr.length - 1 && <div className="w-px h-10 bg-gray-700 shrink-0" />}
+                            </React.Fragment>
+                        ))}
+                    </div>
+
+                    {/* LOT TABLE */}
+                    <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden min-h-0">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <p className="text-sm font-semibold text-gray-600">
+                                Active lots
+                                <span className="ml-2 text-xs font-normal text-blue-500">{lots.length} records</span>
+                            </p>
+                        </div>
+                        <div className="overflow-auto flex-1">
+                            <table className="w-full">
+                                <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        {['No.', 'Job ticket', 'Sub Process', 'Part No.', 'Location', 'Quantity', 'Tray', 'Updated Date'].map(col => (
+                                            <th key={col} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider">
+                                                {col}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {lots.length === 0 && (
+                                        <tr><td colSpan={8} className="text-center py-12 text-gray-300 text-sm">No active lots</td></tr>
+                                    )}
+                                    {lots.map((l, i) => (
+                                        // <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                        <tr
+                                            key={i}
+                                            title="Click to view movement"
+                                            className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer transition-colors"
+                                            onClick={() => {
+                                                setMovementBarcode(l.barcode);
+                                                setTab('movement');
+                                                fetchMovement(l.barcode);
+                                            }}
+                                        >
+                                            <td className="px-4 py-2.5 text-xs text-gray-700">{i + 1}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">{l.barcode}</td>
+                                            <td className="px-4 py-2.5"><StepBadge step={l.sub_process} /></td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{l.part_no}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{l.location}</td>
+                                            <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(l.quantity ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{l.tray_done}/{l.tray_counter}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{formatDate(l.updated_at)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* HISTORY TAB */}
+            {tab === 'history' && (
+                <>
+                    {/* FILTER */}
+                    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shrink-0">
+                        <div className="flex items-end gap-2 flex-wrap">
+                            {[
+                                { name: 'date_from', label: 'Date From', type: 'date' },
+                                { name: 'date_to', label: 'Date To', type: 'date' },
+                                { name: 'barcode', label: 'Job Ticket', type: 'text', placeholder: 'Job ticket' },
+                                { name: 'part_no', label: 'Part No.', type: 'text', placeholder: 'Part No.' },
+                            ].map(({ name, label, type, placeholder }) => (
+                                <div key={name} className="flex flex-col gap-1 flex-1 min-w-0">
+                                    <p className="text-xs text-gray-400 whitespace-nowrap">{label}</p>
+                                    <input
+                                        type={type} name={name}
+                                        value={filter[name]}
+                                        onChange={handleChange}
+                                        onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                                        placeholder={placeholder || ''}
+                                        className={inputCls + " w-full"}
+                                    />
+                                </div>
+                            ))}
+                            <div className="flex flex-col gap-1">
+                                <p className="text-xs text-gray-400">Sub Process</p>
+                                <select name="sub_process" value={filter.sub_process} onChange={handleChange} className={inputCls + " w-40"}>
+                                    <option value="">All Sub Process</option>
+                                    {Object.entries(STEP_LABEL).map(([k, v]) => (
+                                        <option key={k} value={k}>{v}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button onClick={handleSearch} disabled={loading}
+                                className="h-9 px-5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50 transition-colors whitespace-nowrap shrink-0">
+                                {loading ? '...' : 'Search'}
+                            </button>
+                            <button onClick={handleReset}
+                                className="h-9 px-4 text-sm border border-gray-200 text-gray-500 hover:bg-gray-50 rounded-lg transition-colors shrink-0">
+                                Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* TABLE */}
+                    <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden min-h-0">
+                        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
+                            <p className="text-sm font-semibold text-gray-600">
+                                History
+                                <span className="ml-2 text-xs font-normal text-blue-500">{filtered.length} records</span>
+                            </p>
+                            {/* <button onClick={handleExport}
+                                className="h-8 px-4 text-xs bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg transition-colors font-medium">
+                                ↓ Export Excel
+                            </button> */}
+                            <button
+                                onClick={handleExport}
+                                className="h-8 px-3 text-base rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
+                            >
+                                <DownloadOutlined />  <FileExcelOutlined />
+                            </button>
+                        </div>
+                        <div className="overflow-auto flex-1">
+                            <table className="w-full">
+                                <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        {['No.', 'Job ticket', 'Step', 'Part No.', 'Process Code', 'Process', 'Quantity', 'Tray Counter', 'Location', 'Date'].map(col => (
+                                            <th key={col} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider">
+                                                {col}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {pagedHistory.length === 0 && (
+                                        <tr><td colSpan={10} className="text-center py-12 text-gray-300 text-sm">No records found</td></tr>
+                                    )}
+                                    {pagedHistory.map((h, i) => (
+                                        <tr
+                                            key={i}
+                                            title="Click to view movement"
+                                            className="border-b border-gray-50 hover:bg-blue-50 cursor-pointer"
+                                            onClick={() => {
+                                                setMovementBarcode(h.barcode);
+                                                setTab('movement');
+                                                fetchMovement(h.barcode);
+                                            }}
+                                        >
+                                            <td className="px-4 py-2.5 text-xs text-gray-400">{(page - 1) * PAGE_SIZE + i + 1}</td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">{h.barcode}</td>
+                                            <td className="px-4 py-2.5"><StepBadge step={h.sub_process} /></td>
+                                            <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">{h.part_no}</td>
+                                            <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{h.process_code}</td>
+                                            <td className="px-4 py-2.5 text-xs text-gray-500">{h.process}</td>
+                                            <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(h.quantity ?? 0).toLocaleString()}</td>
+                                            <td className="px-4 py-2.5 text-xs text-gray-500">{h.tray_counter}</td>
+                                            <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{h.location}</td>
+                                            <td className="px-4 py-2.5 text-xs text-gray-400">{formatDate(h.created_at)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* Pagination */}
+                        {totalPages > 1 && (
+                            <div className="px-4 py-2.5 border-t border-gray-100 flex items-center justify-between shrink-0">
+                                <p className="text-xs text-gray-400">Page {page} of {totalPages}</p>
+                                <div className="flex gap-1">
+                                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                                        className="h-7 px-3 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 text-gray-500">‹</button>
+                                    {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                        .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                                        .map((p, i, arr) => (
+                                            <React.Fragment key={p}>
+                                                {i > 0 && arr[i - 1] !== p - 1 && (
+                                                    <span className="h-7 px-2 text-xs flex items-center text-gray-300">...</span>
+                                                )}
+                                                <button onClick={() => setPage(p)}
+                                                    className={`h-7 px-3 text-xs border rounded-lg transition-colors ${page === p ? 'bg-blue-500 text-white border-blue-500' : 'border-gray-200 hover:bg-gray-50 text-gray-500'}`}>
+                                                    {p}
+                                                </button>
+                                            </React.Fragment>
+                                        ))
+                                    }
+                                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                                        className="h-7 px-3 text-xs border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50 text-gray-500">›</button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </>
+            )}
+            {tab === 'movement' && (
+                <>
+                    {/* Search bar */}
+                    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shrink-0">
+                        <div className="flex gap-2">
+                            <input
+                                value={movementBarcode}
+                                onChange={e => setMovementBarcode(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && fetchMovement(movementBarcode)}
+                                placeholder="Job Ticket / Barcode"
+                                className={inputCls + " flex-1"}
+                            />
+                            <button
+                                onClick={() => fetchMovement(movementBarcode)}
+                                disabled={movementLoading}
+                                className="h-9 px-5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg disabled:opacity-50"
+                            >
+                                {movementLoading ? '...' : 'Search'}
+                            </button>
+                        </div>
+                        {/* lot info */}
+                        {movementData?.lot && (
+                            <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                                <span>Part No: <b className="text-gray-700">{movementData.lot.part_no}</b></span>
+                                <span>Lot No: <b className="text-gray-700">{movementData.lot.lot_no}</b></span>
+                                <span>Qty: <b className="text-gray-700">{(movementData.lot.quantity ?? 0).toLocaleString()}</b></span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Table */}
+                    <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden min-h-0">
+                        <div className="overflow-auto flex-1">
+                            <table className="w-full">
+                                <thead className="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        {['Datetime', 'Tranfer', 'Process', 'Location', 'Machine No', 'Quantity', 'On-Hand'].map(col => (
+                                            <th key={col} className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 uppercase tracking-wider">
+                                                {col}
+                                            </th>
+                                        ))}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {!movementData && (
+                                        <tr><td colSpan={7} className="text-center py-12 text-gray-300 text-sm">กรอก barcode แล้วกด Search</td></tr>
+                                    )}
+                                    {movementData?.rows?.length === 0 && (
+                                        <tr><td colSpan={7} className="text-center py-12 text-gray-300 text-sm">No records</td></tr>
+                                    )}
+                                    {(() => {
+                                        let onHand = 0;
+                                        return expandRows(movementData?.rows, movementData?.lot?.quantity).map((r, i) => {
+                                            const ev = EVENT_MAP[r.event_type] || { tr: r.event_type, sign: 0 };
+                                            onHand += ev.sign * (r.production_qty || 0);
+                                            const ts = new Date(r.timestamp);
+                                            return (
+                                                <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
+                                                    <td className="px-4 py-2.5 text-xs text-gray-500">{formatDate(r.timestamp)}</td>
+                                                    <td className={`px-4 py-2.5 text-xs font-semibold ${ev.tr === 'Receive' ? 'text-emerald-600' : ev.tr === 'Issue' ? 'text-red-400' : 'text-gray-400'}`}>
+                                                        {ev.tr}
+                                                    </td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.process}</td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.location}</td>
+                                                    <td className="px-4 py-2.5 text-xs font-mono text-gray-600">{r.machine_no || '-'}</td>
+                                                    <td className="px-4 py-2.5 text-sm font-bold text-gray-700">{(r.production_qty ?? 0).toLocaleString()}</td>
+                                                    <td className="px-4 py-2.5 text-sm font-bold text-blue-600">{onHand.toLocaleString()}</td>
+                                                </tr>
+                                            );
+                                        });
+                                    })()}
+                                </tbody>
+                            </table>
+                        </div>
+                        {/* On-Hand footer */}
+                        {movementData?.rows?.length > 0 && (
+                            <div className="px-4 py-2.5 border-t border-gray-100 flex justify-end shrink-0">
+                                <p className="text-sm font-bold text-blue-600">
+                                    On-Hand: {(() => {
+                                        return expandRows(movementData?.rows, movementData?.lot?.quantity).reduce((acc, r) => {
+                                            const ev = EVENT_MAP[r.event_type] || { sign: 0 };
+                                            return acc + ev.sign * (r.production_qty || 0);
+                                        }, 0).toLocaleString()
+                                    })()}
+                                </p>
+                            </div>
+                        )}
+                    </div>
                 </>
             )}
         </div>

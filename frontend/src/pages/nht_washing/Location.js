@@ -1,12 +1,17 @@
-import React, { useState,useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLocationPorts,backendApi } from '../../config/instance';
+import { getLocationPorts, backendApi } from '../../config/instance';
 import InfoPopover from '../../components/InfoPopover';
 
 const Location = () => {
     const navigate = useNavigate();
-    const [search, setSearch]       = useState('');
+    const [search, setSearch] = useState('');
     const [locations, setLocations] = useState({});
+
+    const safeNavigate = (path) => {
+        sessionStorage.setItem('allowed_path', path.split('?')[0]);
+        navigate(path);
+    };
 
     useEffect(() => {
         backendApi.get('/location-ports').then(res => setLocations(res.data));
@@ -57,7 +62,7 @@ const Location = () => {
                                     <tr
                                         key={location}
                                         className="border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer"
-                                        onClick={() => navigate(`/multi-register?location=${location}`)}
+                                        onClick={() => safeNavigate(`/multi-register?location=${location}`)}
                                     >
                                         <td className="px-4 py-3 font-medium text-gray-700">
                                             {location}
@@ -91,7 +96,7 @@ const Location = () => {
                                     <tr
                                         key={location}
                                         className="border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer"
-                                        onClick={() => navigate(`/machine-validation?location=${location}`)}
+                                        onClick={() => safeNavigate(`/machine-validation?location=${location}`)}
                                     >
                                         <td className="px-4 py-3 font-medium text-gray-700">
                                             {location}

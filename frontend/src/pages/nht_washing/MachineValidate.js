@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { backendApi, washingApi } from '../../config/instance';
+import API from '../../config/constances';
 // import { backendApi, pythonApi } from '../../config/instance';
 import { useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
@@ -55,7 +56,7 @@ const MachineValidate = () => {
             const ports = res.data;
             const config = location ? ports[location] : null;
             if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `http://localhost:${config.port}` }));
+                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
             } else {
                 setDeviceApi(() => washingApi);
             }
@@ -88,9 +89,8 @@ const MachineValidate = () => {
                     await fetchLotInfo(res.data.tag_id);
                 }
             } catch (err) {
-                //console.log('poll error:', err.config?.url, err.message);
             }
-        }, 500);
+        }, 1000);
         return () => clearInterval(interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location, deviceApi, deviceReady]); //(main_dll)
@@ -99,6 +99,17 @@ const MachineValidate = () => {
     useEffect(() => {
         if (location) localStorage.setItem('rfid_location_washing', location);
     }, [location]);
+
+    // ดึงจำนวน tray ที่ผ่าน washing แล้ว — retry ถ้า DB ยังไม่ update ทัน
+    const fetchTrayCount = async (barcode) => {
+        for (let i = 0; i < 5; i++) {
+            const countRes = await backendApi.get(`/tray_count/${barcode}`);
+            const done = countRes.data.after_washing_done ?? 0;
+            if (done > 0) return done;
+            await new Promise(r => setTimeout(r, 500));
+        }
+        return 0;
+    };
 
     const fetchLotInfo = async (tag) => {
         setLoading(true);
@@ -121,8 +132,11 @@ const MachineValidate = () => {
             setTagId(tag);
 
             // นับ tray ที่ผ่าน after_washing แล้วใน lot นี้
-            const countRes = await backendApi.get(`/tray_count/${data.barcode}`);
-            const done = countRes.data.after_washing_done ?? 0;
+            // const countRes = await backendApi.get(`/tray_count/${data.barcode}`);
+            // const done = countRes.data.after_washing_done ?? 0;
+            // setTrayDone(done);
+
+            const done = await fetchTrayCount(data.barcode);
             setTrayDone(done);
 
             // ครบทุก tray แสดง machine list
@@ -155,18 +169,13 @@ const MachineValidate = () => {
             // เรียก part convert
             const convertRes = await backendApi.get(`/part-convert/${partNo}`);
             const converts = convertRes.data;
-            //console.log('part_no ที่ใช้หา:', partNo);
-            //console.log('converts ทั้งหมด:', converts.length, converts.slice(0, 3));
             // filter partConvertFrom ตรงกับ part_no
             const matchedConverts = converts.filter(c => c.partConvertFrom === partNo);
-            //console.log('matchedConverts:', matchedConverts);
             const convertedParts = matchedConverts.map(c => c.partConvertTo);
             // ถ้าไม่มี convert ใช้ part_no เดิม
             const partsToMatch = convertedParts.length > 0 ? convertedParts : [partNo];
-            //console.log('partsToMatch:', partsToMatch);
             // เรียก machine API
             const res = await backendApi.get('/machine-list');
-            //console.log('machine ทั้งหมด:', res.data.length, res.data[0]);
             // const rpFromLot = extractRp(rwDiameter);
             // const matched = res.data.filter(item => {
             //     const partMatch = partsToMatch.some(p =>
@@ -183,7 +192,6 @@ const MachineValidate = () => {
                 );
                 return partMatch;
             });
-            //console.log('matched:', matched);
 
 
             setMachineList(matched)
@@ -286,8 +294,8 @@ const MachineValidate = () => {
                                         'Group Part',
                                         'Bearing No.',
                                         'Specification',
-                                        'InnerRing Part',
                                         'OuterRing Part',
+                                        'InnerRing Part',
                                         'RP'
                                     ].map(col => (
                                         <th key={col} className="text-left px-4 py-3 text-xs font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
@@ -315,8 +323,8 @@ const MachineValidate = () => {
                                         <td className="px-4 py-4 text-gray-700">{m.groupPart || '—'}</td>
                                         <td className="px-4 py-4 text-gray-700">{m.bearingNo || '—'}</td>
                                         <td className="px-4 py-4 text-gray-500">{m.specification || '—'}</td>
-                                        <td className="px-4 py-4 text-gray-500">{m.innerRingPart || '—'}</td>
                                         <td className="px-4 py-4 text-gray-500">{m.outerRingPart || '—'}</td>
+                                        <td className="px-4 py-4 text-gray-500">{m.innerRingPart || '—'}</td>
                                         <td className="px-4 py-4">
                                             <span className="text-sm bg-blue-50 text-blue-700 px-3 py-1 rounded-full">
                                                 {extractRp(m.rp) || '—'}
@@ -357,7 +365,7 @@ const MachineValidate = () => {
                             onClick={() => {
                                 setMachineList(h.machineList)
                                 setSelectedBarcode(h.barcode)
-                                setLotInfo({ barcode: h.barcode, part_no: h.part_no, tray_counter: h.tray_counter,rw_diameter: h.rw_diameter, })
+                                setLotInfo({ barcode: h.barcode, part_no: h.part_no, tray_counter: h.tray_counter, rw_diameter: h.rw_diameter, })
                                 setTrayDone(h.tray_counter)
                             }}
                             className={`w-full text-left px-3 py-2.5 rounded-xl border text-xs transition-colors

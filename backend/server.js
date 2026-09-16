@@ -2,22 +2,22 @@ require('dotenv').config();
 const express    = require('express');
 const cors       = require('cors');
 const rfidRoutes = require('./routes/rfid');
-const as400Routes = require('./routes/as400');
-const monitorRoutes = require('./routes/monitor');
+const { router: as400Routes, retryErrors } = require('./routes/as400');
 const app  = express();
-const PORT = 5000;
+const PORT = 1001;
 
-app.use(cors());
+app.use(cors({
+    origin: '*'
+}));
 app.use(express.json());
 
 app.use('/api/rfid', rfidRoutes);
 app.use('/api/as400', as400Routes);
-app.use('/api/monitor', monitorRoutes);     
 
 app.get('/', (req, res) => {
     res.json({ message: 'RFID API running' });
 });
 
-app.listen(PORT, () => {
-    //console.log(`✅ Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    setInterval(retryErrors, 5 * 60 * 1000);
 });

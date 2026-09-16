@@ -1,4 +1,43 @@
-# .gitignore
+# Dependencies
 node_modules/
+
+# Environment
 .env
-backend/.env
+.env.local
+.env.production
+
+# Build
+build/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# PM2
+.pm2/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# PyInstaller build output
+service/dist/
+service/build/
+service/_internal/
+*.spec
+service/rfid_service.exe
+service/start_rfid.exe
+
+# Backup / draft files
+service/main_backup.py
+frontend/src/pages/nht_washing/Dashboard_1.js
+
+# Duplicate build workspace (ไม่ได้ใช้แล้ว)
+service_2/
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
