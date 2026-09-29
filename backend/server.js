@@ -4,7 +4,7 @@ const cors       = require('cors');
 const rfidRoutes = require('./routes/rfid');
 const { router: as400Routes, retryErrors } = require('./routes/as400');
 const app  = express();
-const PORT = 1001;
+const PORT = 2002;
 
 app.use(cors({
     origin: '*'

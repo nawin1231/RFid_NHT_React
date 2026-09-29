@@ -11,24 +11,66 @@ const JOB_TICKET_URL = process.env.JOB_TICKET_URL;
 const MACHINE_URL = process.env.MACHINE_URL;
 const PART_CONVERT_URL = process.env.PART_CONVERT_URL;
 const API_TOKEN = process.env.API_TOKEN;
+const READER_HOST = process.env.READER_HOST || 'localhost';
 
 // ===== CACHE =====
 const apiCache = new Map();
 const TTL_5MIN = 5 * 60 * 1000;
 const TTL_30MIN = 30 * 60 * 1000;
 
+// ===== IT API TIMEOUT =====
+const IT_API_TIMEOUT_MS = 8000;
+// IT API ล่ม → ใช้ข้อมูลเก่าใน cache ได้ถ้าอายุไม่เกินนี้
+const STALE_MAX_MS = 2 * 60 * 60 * 1000;
+const inflight = new Map();
+
+// const withCache = async (key, ttlMs, fetchFn) => {
+//     const cached = apiCache.get(key);
+//     if (cached && Date.now() - cached.timestamp < ttlMs) return cached.data;
+//     const data = await fetchFn();
+//     apiCache.set(key, { data, timestamp: Date.now() });
+//     return data;
+// };
+// เดิม: (1) cache หมดอายุ → ทุก request ที่เข้ามาพร้อมกันยิง IT API ซ้อนกันหมด (76 เครื่อง = 76 ครั้ง)
+//       (2) IT API ล่ม → throw ทันที ทั้งที่มีข้อมูลเก่าใน cache อยู่
 const withCache = async (key, ttlMs, fetchFn) => {
     const cached = apiCache.get(key);
     if (cached && Date.now() - cached.timestamp < ttlMs) return cached.data;
-    const data = await fetchFn();
-    apiCache.set(key, { data, timestamp: Date.now() });
-    return data;
+
+    // มี request อื่นกำลังดึง key นี้อยู่ → รอผลตัวเดียวกัน ไม่ยิงซ้อน
+    if (inflight.has(key)) return inflight.get(key);
+
+    const p = (async () => {
+        try {
+            const data = await fetchFn();
+            apiCache.set(key, { data, timestamp: Date.now() });
+            return data;
+        } catch (err) {
+            // ดึงไม่ได้ แต่มีของเก่าที่ยังไม่เก่าเกิน → ใช้ไปก่อน (ไม่อัปเดต timestamp → request ถัดไปลอง IT ใหม่)
+            if (cached && Date.now() - cached.timestamp < STALE_MAX_MS) {
+                const ageMin = Math.round((Date.now() - cached.timestamp) / 60000);
+                return cached.data;
+            }
+            throw err;
+        } finally {
+            inflight.delete(key);
+        }
+    })();
+    inflight.set(key, p);
+    return p;
 };
 
+// const getMachineList = () =>
+//     withCache('machine-list', TTL_30MIN, () =>
+//         axios.get(`${MACHINE_URL}/N?processes=1520,1512`, { headers: { Authorization: API_TOKEN } })
+//             .then(r => r.data)
+//     );
 const getMachineList = () =>
     withCache('machine-list', TTL_30MIN, () =>
-        axios.get(`${MACHINE_URL}/N?processes=1520,1512`, { headers: { Authorization: API_TOKEN } })
-            .then(r => r.data)
+        axios.get(`${MACHINE_URL}/N?processes=1520,1512`, {
+            headers: { Authorization: API_TOKEN },
+            timeout: IT_API_TIMEOUT_MS,
+        }).then(r => r.data)
     );
 
 // ส่งผลตรวจ part (Y/N) ไป AS400 /checking — ใช้ทั้งกรณี part ตรง (A6) และ part ไม่ตรง (mismatch)
@@ -65,8 +107,12 @@ router.get('/job-ticket/:barcode', async (req, res) => {
             `job-ticket:${req.params.barcode}`,
             TTL_5MIN,
             async () => {
+                // const result = await axios.get(`${JOB_TICKET_URL}/${req.params.barcode}`, {
+                //     headers: { Authorization: API_TOKEN }
+                // });
                 const result = await axios.get(`${JOB_TICKET_URL}/${req.params.barcode}`, {
-                    headers: { Authorization: API_TOKEN }
+                    headers: { Authorization: API_TOKEN },
+                    timeout: IT_API_TIMEOUT_MS,
                 });
                 return result.data;
             }
@@ -118,9 +164,13 @@ router.get('/part-convert/:partNo', async (req, res) => {
             `part-convert:${req.params.partNo}`,
             TTL_30MIN,
             async () => {
+                // const result = await axios.get(
+                //     `${PART_CONVERT_URL}&PartConvertFrom=${req.params.partNo}`,
+                //     { headers: { Authorization: API_TOKEN } }
+                // );
                 const result = await axios.get(
                     `${PART_CONVERT_URL}&PartConvertFrom=${req.params.partNo}`,
-                    { headers: { Authorization: API_TOKEN } }
+                    { headers: { Authorization: API_TOKEN }, timeout: IT_API_TIMEOUT_MS }
                 );
                 return result.data;
             }
@@ -148,7 +198,11 @@ router.get('/part-convert/:partNo', async (req, res) => {
 // READER STATUS
 // =========================================================
 // ดึงสถานะ reader ทุกตัวจาก Python process
-router.get('/status', async (req, res) => {
+// router.get('/status', async (req, res) => {
+// เดิมเป็น route ตรงๆ → ทุกครั้งที่จอถาม (ReaderStatus 3 วิ, ReaderConfig 3 วิ, MbrMonitor 5 วิ × ทุกจอ)
+// Node ยิงหา Python ทุกตัว · 99 reader × 5 จอ ≈ 150 request/วิ ไปที่ Python
+// ตอนนี้แยกส่วนคำนวณเป็น buildStatus() แล้วให้ route ด้านล่าง cache ผลไว้ 2 วิ
+const buildStatus = async () => {
     try {
         const readers = JSON.parse(
             fs.readFileSync(path.join(__dirname, '../../service/readers_config.json'), 'utf-8')
@@ -183,8 +237,35 @@ router.get('/status', async (req, res) => {
             };
         });
 
-        res.json({ connected: statuses.some(s => s.connected), readers: statuses });
+        // res.json({ connected: statuses.some(s => s.connected), readers: statuses });
+        return { connected: statuses.some(s => s.connected), readers: statuses };
     } catch (err) {
+        // res.json({ connected: false, readers: [] });
+        return { connected: false, readers: [] };
+    }
+// });
+};
+
+// ผล /status ล่าสุด — ทุกจอที่ถามภายใน 2 วิ ได้ผลชุดเดียวกัน
+const STATUS_CACHE_MS = 2000;
+let statusCache = null;      // { body, timestamp }
+let statusInflight = null;   // Promise ของรอบที่กำลังถาม Python อยู่ — กันจอหลายจอยิงซ้อนกัน
+
+router.get('/status', async (req, res) => {
+    if (statusCache && Date.now() - statusCache.timestamp < STATUS_CACHE_MS) {
+        return res.json(statusCache.body);
+    }
+    if (!statusInflight) {
+        statusInflight = buildStatus()
+            .then(body => {
+                statusCache = { body, timestamp: Date.now() };
+                return body;
+            })
+            .finally(() => { statusInflight = null; });
+    }
+    try {
+        res.json(await statusInflight);
+    } catch {
         res.json({ connected: false, readers: [] });
     }
 });
@@ -254,6 +335,14 @@ router.post('/pallet', async (req, res) => {
     try {
         const { tag_id, location } = req.body;
         const pool = await poolPromise;
+
+        // ย้าย pallet (requirement 2026-09-29): ต้องรู้ว่า lot เคยวางที่ไหน "ก่อน" SP อัป location ใหม่ทับ
+        // sub_process = before_washing ถูกตั้งโดย SP ของ pallet เท่านั้น → แปลว่าเคยวาง pallet มาแล้ว
+        const beforeResult = await pool.request()
+            .input('tag_id', sql.VarChar, tag_id)
+            .execute('Stored_tb_rfid_lot_select_by_tagid');
+        const lotBefore = beforeResult.recordset[0];
+
         const result = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
             .input('location', sql.VarChar, location)
@@ -265,9 +354,29 @@ router.post('/pallet', async (req, res) => {
                 .input('tag_id', sql.VarChar, tag_id)
                 .execute('Stored_tb_rfid_lot_select_by_tagid');
             const lotData = lotResult.recordset[0];
-            axios.post(`${AS400_INTERNAL_URL}/pallet-in`, {
-                tag_id, barcode: lotData?.barcode, location, lot_data: lotData,
-            }).catch(err => console.error('[AS400] pallet-in error:', err.message));
+            // axios.post(`${AS400_INTERNAL_URL}/pallet-in`, {
+            //     tag_id, barcode: lotData?.barcode, location, lot_data: lotData,
+            // }).catch(err => console.error('[AS400] pallet-in error:', err.message));
+
+            // ย้ายมาจาก pallet อื่น → A2 issue ออกจาก pallet เก่า "ก่อน" แล้วค่อย A1 receive ที่ pallet ใหม่
+            // วางครั้งแรก (registered) → A1 อย่างเดียว เหมือนเดิม
+            // (SP ตอบ OK เฉพาะตอน location เปลี่ยน · วาง pallet เดิมซ้ำ = DUPLICATE_LOCATION → ไม่เข้ามาตรงนี้)
+            const movedFrom = (lotBefore?.sub_process === 'before_washing'
+                && lotBefore?.location && lotBefore.location !== location)
+                ? lotBefore.location : null;
+
+            // ทำเบื้องหลัง ตอบ Python ทันทีเหมือนเดิม · await = A1 รอ A2 ส่ง AS400 เสร็จ (หรือ timeout 8 วิ) ก่อน
+            (async () => {
+                if (movedFrom) {
+                    console.log(`[pallet] lot ${lotData?.barcode} ย้าย ${movedFrom} → ${location} : A2 ${movedFrom} แล้ว A1 ${location}`);
+                    await axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
+                        barcode: lotData?.barcode, location: movedFrom, lot_data: lotData,
+                    }).catch(err => console.error('[AS400] pallet-out (move) error:', err.message));
+                }
+                await axios.post(`${AS400_INTERNAL_URL}/pallet-in`, {
+                    tag_id, barcode: lotData?.barcode, location, lot_data: lotData,
+                }).catch(err => console.error('[AS400] pallet-in error:', err.message));
+            })();
         }
         res.json({ result: status });
     } catch (err) {
@@ -352,6 +461,22 @@ router.post('/washing', async (req, res) => {
                         .input('tag_id', sql.VarChar, tag_id)
                         .execute('Stored_tb_rfid_lot_select_by_tagid');
                     const lotData = lotResult.recordset[0];
+
+                    // A2 issue ออกจาก pallet (MOVE_OUT BF<pallet>) — requirement 2026-09-29: ต้องส่งก่อน A3 เสมอ
+                    // เดิม Python pallet ส่ง /pallet-lot-out ตอน tag หายจาก pallet (~75 วิ) → ย้ายมาส่งตอนล้างครบ lot
+                    // location = pallet ที่ lot วางล่าสุด (tb_rfid_lot.location ที่ SP lot_update_location อัปไว้)
+                    // await = รอ as400.js ส่ง AS400 เสร็จ (หรือ timeout 8 วิ) ก่อน แล้วค่อยส่ง A3
+                    // ส่งซ้ำไม่นับซ้ำ: as400.js /pallet-out เช็ค last event = PALLET_OUT → ALREADY_OUT
+                    if (lotData?.location) {
+                        await axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
+                            barcode: lotData.barcode,
+                            location: lotData.location,
+                            lot_data: lotData,
+                        }).catch(err => console.error('[AS400] pallet-out (washing) error:', err.message));
+                    } else {
+                        console.warn(`[washing] lot ${lotData?.barcode} ไม่มี pallet location → ข้าม A2`);
+                    }
+
                     await axios.post(`${AS400_INTERNAL_URL}/washing`, {
                         tag_id,
                         barcode: lotData?.barcode,
@@ -378,7 +503,7 @@ router.post('/washing', async (req, res) => {
     }
 });
 
-
+// =========================================================
 // ON MACHINE
 // =========================================================
 
@@ -414,9 +539,15 @@ router.post('/on-machine', async (req, res) => {
         // 2. ดึง machine list + part convert (cache)
         const [machineList, convertData] = await Promise.all([
             getMachineList(),
+            // withCache(`part-convert:${lotData.part_no}`, TTL_30MIN, () =>
+            //     axios.get(`${PART_CONVERT_URL}&PartConvertFrom=${lotData.part_no}`, {
+            //         headers: { Authorization: API_TOKEN },
+            //     }).then(r => r.data)
+            // ),
             withCache(`part-convert:${lotData.part_no}`, TTL_30MIN, () =>
                 axios.get(`${PART_CONVERT_URL}&PartConvertFrom=${lotData.part_no}`, {
                     headers: { Authorization: API_TOKEN },
+                    timeout: IT_API_TIMEOUT_MS,
                 }).then(r => r.data)
             ),
         ]);
@@ -639,6 +770,69 @@ router.post('/readers-restart/:port', async (req, res) => {
         res.json({ result: 'OK' });
     } catch {
         res.json({ result: 'OK' });
+    }
+});
+
+// =========================================================
+// READER PROXY
+// =========================================================
+// frontend ใช้คุยกับ Python ทุกตัว — แยก reader ด้วย path ไม่ใช่ port
+router.all('/reader/:location/*splat', async (req, res) => {
+    try {
+        // readers_config.json = reader ตัวไหนฟัง port ไหน (ไฟล์เดียวกับที่ start_rfid.py ใช้)
+        const readers = JSON.parse(fs.readFileSync(
+            path.join(__dirname, '../../service/readers_config.json'), 'utf-8'
+        ));
+        // location_ports.json = location ในเมนูนี้ใช้ reader ตัวไหน (ชื่อ 2 ไฟล์ไม่ตรงกันเสมอ)
+        let locationPorts = {};
+        try {
+            locationPorts = JSON.parse(fs.readFileSync(
+                path.join(__dirname, '../../service/location_ports.json'), 'utf-8'
+            ));
+        } catch { /* ไม่มีไฟล์ก็ไม่เป็นไร ตกไปใช้วิธีเทียบชื่อด้านล่าง */ }
+
+        const cfg = locationPorts[req.params.location];
+        let reader = null;
+
+        if (cfg) {
+            reader = readers.find(r => r.port === cfg.port);
+        } else {
+            reader = readers.find(r => r.location === req.params.location);
+        }
+
+        if (!reader) {
+            return res.status(404).json({
+                error: `cannot resolve location: ${req.params.location}`,
+                hint:  cfg
+                    ? `location_ports.json ชี้ port ${cfg.port} ซึ่งไม่ใช่ port ของ reader ตัวไหนใน readers_config.json — แก้ให้เป็น port ที่ Python ฟังจริง (8000-80xx) ไม่ใช่ port ที่ IT เปิด NAT`
+                    : 'ไม่มี location นี้ทั้งใน location_ports.json และ readers_config.json',
+            });
+        }
+        const subPath = Array.isArray(req.params.splat)
+            ? req.params.splat.join('/')
+            : req.params.splat;
+
+        // ส่งต่อไป Python ในเครื่องเดียวกัน — ไม่ออกจากเครื่อง
+        const r = await axios({
+            method: req.method,
+            url:    `http://${READER_HOST}:${reader.port}/${subPath}`,
+            // GET ต้องไม่แนบ body เพราะ express.json() ใส่ {} มาให้ทุก request
+            ...(req.method === 'GET' ? {} : { data: req.body }),
+            timeout: 5000,
+        });
+        res.status(r.status).json(r.data);
+    } catch (err) {
+        // Python ไม่ตอบ (process ตาย / ยังไม่ start / DLL หลุด) → 502 พร้อมบอกว่า location ไหน
+        // err.message ว่างได้จริง: node 22 ต่อไม่สำเร็จจะโยน AggregateError ที่ message เปล่า
+        const detail = err.message
+            || err.code
+            || err.errors?.map(e => e.message || e.code).filter(Boolean).join('; ')
+            || 'reader unreachable';
+        console.error(`[reader-proxy] ${req.params.location}: ${detail}`);
+        res.status(err.response?.status || 502).json({
+            error:    detail,
+            location: req.params.location,
+        });
     }
 });
 

@@ -5,14 +5,9 @@ import {
     AppstoreOutlined,
     ScanOutlined,
     ToolOutlined,
-    HistoryOutlined,
     SettingOutlined,
     DashboardOutlined,
     SearchOutlined,
-    EnvironmentOutlined,
-    MenuFoldOutlined,
-    MenuUnfoldOutlined,
-    WifiOutlined,
     TagOutlined,
 } from '@ant-design/icons';
 

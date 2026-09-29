@@ -1,9 +1,7 @@
 // TagSearch.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { backendApi, pythonApi } from '../../config/instance';
-import API from '../../config/constances';
-import axios from 'axios';
+import { backendApi, pythonApi, readerApi } from '../../config/instance';
 
 const SUB_PROCESS_COLOR = {
     registered: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Registered' },
@@ -12,6 +10,9 @@ const SUB_PROCESS_COLOR = {
     on_machine: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'On Machine' },
     completed: { bg: 'bg-green-100', text: 'text-green-700', label: 'Completed' },
 };
+
+// ดึงข้อมูล lot ของ tag เดิมซ้ำได้ไม่ถี่กว่านี้ — จอยังอัปเดตสถานะได้ แต่ไม่ยิง SQL ทุกวินาที
+const LOT_REFRESH_MS = 10 * 1000;
 
 const TagSearch = () => {
 
@@ -27,22 +28,30 @@ const TagSearch = () => {
 
     const [readerIndex, setReaderIndex] = useState(0);
 
-    // โหลด location-ports 
-    useEffect(() => { //(main_dll)
+    // เวลาที่ดึง /lot-by-tag ล่าสุดของแต่ละ tag {tag: timestamp}
+    // ต้องเป็น ref ไม่ใช่ state เพราะ setInterval ด้านล่างถูกสร้างครั้งเดียว มองไม่เห็น state ที่เปลี่ยนทีหลัง
+    const lastFetchRef = useRef({});
+
+    // โหลด location-ports
+    // useEffect(() => { //(main_dll)
+    //     setDeviceReady(false);
+    //     backendApi.get('/location-ports').then(res => {
+    //         const ports = res.data;
+    //         const config = location ? ports[location] : null;
+    //         if (config) {
+    //             setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
+    //         } else {
+    //             setDeviceApi(() => pythonApi);
+    //         }
+    //         setDeviceReady(true);
+    //     }).catch(() => {
+    //         setDeviceApi(() => pythonApi);
+    //         setDeviceReady(true);
+    //     });
+    useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => {
-            const ports = res.data;
-            const config = location ? ports[location] : null;
-            if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
-            } else {
-                setDeviceApi(() => pythonApi);
-            }
-            setDeviceReady(true);
-        }).catch(() => {
-            setDeviceApi(() => pythonApi);
-            setDeviceReady(true);
-        });
+        setDeviceApi(() => (location ? readerApi(location) : pythonApi));
+        setDeviceReady(true);
         // backendApi.get('/location-ports').then(res => { (main_multi)
         //     const ports = res.data;
         //     const config = location ? ports[location] : null;
@@ -69,7 +78,14 @@ const TagSearch = () => {
                     return combined;
                 });
 
-                const newTags = list.filter(t => !tagData[t]);
+                // เดิม: tagData ใน setInterval ค้างเป็น {} ตลอด (stale closure) → ทุก tag ถูกมองว่าใหม่
+                //       → ยิง /lot-by-tag ทุก tag ทุกวินาทีพร้อมกัน (50 tag = 50 SQL/วิ ต่อ 1 จอ)
+                //       และ tag ที่ไม่เจอ (null) ก็ถูกยิงซ้ำตลอดเพราะ !null = true
+                // const newTags = list.filter(t => !tagData[t]);
+                const now = Date.now();
+                const newTags = list.filter(t => now - (lastFetchRef.current[t] || 0) >= LOT_REFRESH_MS);
+                // จองเวลาไว้ก่อนยิง กันรอบถัดไปยิง tag เดิมซ้อนระหว่างที่ request แรกยังไม่กลับ
+                newTags.forEach(t => { lastFetchRef.current[t] = now; });
                 await Promise.all(newTags.map(async (tag) => {
                     try {
                         const r = await backendApi.get(`/lot-by-tag/${tag}`);
@@ -78,7 +94,11 @@ const TagSearch = () => {
                         } else {
                             setTagData(prev => ({ ...prev, [tag]: null }));
                         }
-                    } catch { }
+                    // } catch { }
+                    } catch {
+                        // ดึงไม่สำเร็จ → ลบเวลาออก ให้รอบถัดไป (1 วิ) ลองใหม่ทันที
+                        delete lastFetchRef.current[tag];
+                    }
                 }));
             } catch { }
         }, 1000);
@@ -109,6 +129,7 @@ const TagSearch = () => {
     const clearAll = () => {
         setTags([]);
         setTagData({});
+        lastFetchRef.current = {};   // ล้างแล้ว tag ที่ยังอยู่หน้า reader ต้องถูกดึงใหม่ทันที
         setSelected(null);
         setManualTag('');
     };

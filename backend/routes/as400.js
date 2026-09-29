@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const { sql, poolPromise } = require('../database');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
 
 const AS400_MOVEMENT_URL = process.env.AS400_MOVEMENT_URL;
 const AS400_PRODUCTION_RESULT_URL = process.env.AS400_PRODUCTION_RESULT_URL;
@@ -19,7 +21,9 @@ const generateTrackId = (process, location, jobtag) => {
 };
 
 // insert log → return id
-const logToDB = async (pool, eventType, apiType, payload) => {
+// const logToDB = async (pool, eventType, apiType, payload) => {
+// เปลี่ยนชื่อเป็น logToDBOnce — ไส้ในเหมือนเดิมทุกบรรทัด · ทุก route เรียก logToDB ตัวใหม่ด้านล่าง
+const logToDBOnce = async (pool, eventType, apiType, payload) => {
     const result = await pool.request()
         .input('track_id', sql.VarChar, payload.track_id)
         .input('api_type', sql.VarChar, apiType)
@@ -33,6 +37,47 @@ const logToDB = async (pool, eventType, apiType, payload) => {
         .input('tag_id', sql.VarChar, payload.tag_id || null)
         .execute('Stored_tb_rfid_as400_log_insert');
     return result.recordset[0].id;
+};
+
+// ตาข่ายของ logToDB
+// เดิม: insert log พลาดครั้งเดียว (pool เต็ม / DB สะดุด) → route โยน 500 → ไม่ส่ง AS400 + ไม่มีแถวใน log
+//       → retryErrors มองไม่เห็น → event หายเงียบ ไม่มีร่องรอยใน DB
+// ตอนนี้: ลองใหม่ก่อน · ยังไม่ได้ → จดลงไฟล์สำรองไว้เป็นหลักฐาน แล้ว throw ต่อเหมือนเดิม
+//    "ไม่ส่ง AS400" เมื่อไม่มีแถว log เพราะตัวกันส่งซ้ำ
+//    (last_on_machine_event, check_last_event) อ่านจากตาราง log — ส่งไปโดยไม่มีแถว = อาจส่งซ้ำทีหลัง
+//    ข้อมูลในไฟล์ยังไม่เคยถึง AS400 จึงเอาไปส่งซ้ำเองได้ปลอดภัย
+const LOG_RETRY_DELAYS_MS = [500, 1500]; 
+const FAILED_LOG_FILE = path.join(__dirname, '../logs/as400_failed.jsonl');
+
+const logToDB = async (pool, eventType, apiType, payload) => {
+    let lastErr;
+    for (let attempt = 0; attempt <= LOG_RETRY_DELAYS_MS.length; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, LOG_RETRY_DELAYS_MS[attempt - 1]));
+        try {
+            return await logToDBOnce(pool, eventType, apiType, payload);
+        } catch (err) {
+            lastErr = err;
+            console.error(`[logToDB] ${eventType} ${payload.jobtag || ''} ครั้งที่ ${attempt + 1} พลาด: ${err.message}`);
+        }
+    }
+
+    // ลองครบแล้วยังไม่ได้ → จดลงไฟล์ 1 บรรทัด = 1 event (JSON Lines)
+    const line = JSON.stringify({
+        failed_at: new Date().toISOString(),
+        event_type: eventType,
+        api_type: apiType,
+        payload,
+        error: lastErr?.message,
+    }) + '\n';
+    try {
+        fs.mkdirSync(path.dirname(FAILED_LOG_FILE), { recursive: true });
+        fs.appendFileSync(FAILED_LOG_FILE, line, 'utf-8');
+        console.error(`[logToDB] ${eventType} ${payload.jobtag || ''} → ไม่ได้ส่ง AS400 · จดไว้ที่ ${FAILED_LOG_FILE}`);
+    } catch (fileErr) {
+        // เขียนไฟล์ก็ไม่ได้ → อย่างน้อยให้ข้อมูลเต็มอยู่ใน console
+        console.error(`[logToDB] เขียนไฟล์สำรองไม่ได้ (${fileErr.message}) · ข้อมูลที่หาย: ${line}`);
+    }
+    throw lastErr;
 };
 
 // update status + เก็บ response หลังส่ง API
@@ -325,7 +370,7 @@ router.post('/on-machine-out', async (req, res) => {
 });
 
 // Auto retry — ดึง ERROR records แล้วส่งใหม่
-const retryErrors = async () => {
+const retryErrorsOnce = async () => {
     try {
         const pool = await poolPromise;
         const result = await pool.request()
@@ -368,6 +413,23 @@ const retryErrors = async () => {
             }
         }
     } catch (err) {
+    }
+};
+
+// กันรอบทับ — 1 รอบส่งได้ถึง 100 แถว × 8 วิ (AS400_TIMEOUT_MS) = 800 วิ
+// แต่ server.js เรียกทุก 300 วิ → ถ้า AS400 ช้า รอบใหม่เริ่มก่อนรอบเก่าจบ
+// → ดึงแถว ERROR ชุดเดิมมาส่งซ้อน = ส่งซ้ำไป AS400
+let retryRunning = false;
+const retryErrors = async () => {
+    if (retryRunning) {
+        console.warn(`[retryErrors] ${new Date().toLocaleTimeString()} รอบก่อนยังไม่เสร็จ → ข้ามรอบนี้`);
+        return;
+    }
+    retryRunning = true;
+    try {
+        await retryErrorsOnce();
+    } finally {
+        retryRunning = false;   // ต้องปล่อยเสมอ ไม่งั้น error ครั้งเดียว retry หยุดถาวร
     }
 };
 

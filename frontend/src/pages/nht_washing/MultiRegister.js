@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { backendApi, pythonApi } from '../../config/instance';
-import API from '../../config/constances';
-import axios from 'axios';
+// import { backendApi, pythonApi } from '../../config/instance';
+import { backendApi, pythonApi, readerApi } from '../../config/instance';
+// import API from '../../config/constances';
+// import axios from 'axios';
 import Swal from 'sweetalert2';
 
 const showAlert = (msg, type) => {
@@ -33,21 +34,29 @@ const MultiRegister = () => {
 
     const inputRef = useRef(null);
 
+    // เดิมต้องโหลด /location-ports มาหา port เองแล้วยิงตรงไป Python
+    // ซึ่งบังคับให้ IT เปิด NAT เพิ่ม 1 port ต่อ 1 location
+    // ตอนนี้ backend resolve location → reader ให้เอง (READER PROXY)
+    // useEffect(() => {
+    //     setDeviceReady(false);
+    //     backendApi.get('/location-ports').then(res => { //(main_dll)
+    //         const ports = res.data;
+    //         const config = location ? ports[location] : null;
+    //         if (config) {
+    //             setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
+    //         } else {
+    //             setDeviceApi(() => pythonApi);
+    //         }
+    //         setDeviceReady(true);
+    //     }).catch(() => {
+    //         setDeviceApi(() => pythonApi);
+    //         setDeviceReady(true);
+    //     });
     useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => { //(main_dll)
-            const ports = res.data;
-            const config = location ? ports[location] : null;
-            if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
-            } else {
-                setDeviceApi(() => pythonApi);
-            }
-            setDeviceReady(true);
-        }).catch(() => {
-            setDeviceApi(() => pythonApi);
-            setDeviceReady(true);
-        });
+        // ไม่มี ?location= ให้ fallback เป็น pythonApi เหมือนพฤติกรรมเดิม
+        setDeviceApi(() => (location ? readerApi(location) : pythonApi));
+        setDeviceReady(true);
         // backendApi.get('/location-ports').then(res => { (main_multi)
         //     const ports = res.data;
         //     const config = location ? ports[location] : null;

@@ -2,7 +2,7 @@ const sql = require('mssql/msnodesqlv8');
 // const sql = require('mssql');
 
 const dbConfig = {
-    server: 'PBSY70\\SQLEXPRESS',
+    server: 'PBTN7G',
     database: 'db_nht_washing_rfid_1',
     driver: 'msnodesqlv8',
     options: {
@@ -20,6 +20,11 @@ const dbConfig = {
 //     options: {
 //         trustServerCertificate: true,
 //         enableArithAbort:       true,
+//     },
+//     pool: {
+//         max: 50,
+//         min: 0,
+//         idleTimeoutMillis: 30000
 //     }
 // };
 

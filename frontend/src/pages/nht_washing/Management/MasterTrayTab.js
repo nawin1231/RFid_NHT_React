@@ -10,6 +10,11 @@ const MasterTrayTab = () => {
     const [trays, setTrays] = useState([]);
     const [form, setForm] = useState(defaultForm);
     const [editPartNo, setEditPartNo] = useState(null);
+    const [search, setSearch] = useState('');
+
+    const filteredTrays = trays.filter(t =>
+        !search || String(t.part_no || '').toLowerCase().includes(search.trim().toLowerCase())
+    );
 
     const fetchTrays = async () => {
         try {
@@ -169,7 +174,30 @@ const MasterTrayTab = () => {
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
                     <p className="text-sm font-medium text-gray-500">Master Tray</p>
                     <div className="flex items-center gap-3">
-                        <span className="text-xs text-gray-400">{trays.length} records</span>
+                        {/* ค้นหา part no */}
+                        <input
+                            type="text"
+                            value={search}
+                            onChange={e => setSearch(e.target.value)}
+                            placeholder="Search part no..."
+                            className="h-8 px-3 text-xs border border-gray-200 rounded-lg bg-gray-50 w-48
+                                       focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        {search && (
+                            <button
+                                onClick={() => setSearch('')}
+                                className="h-8 px-2 text-xs rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50"
+                            >
+                                ✕
+                            </button>
+                        )}
+                        {/* <span className="text-xs text-gray-400">{trays.length} records</span> */}
+                        {/* ขณะ search ให้บอกด้วยว่าเจอกี่แถวจากทั้งหมดเท่าไหร่ */}
+                        <span className="text-xs text-gray-400 whitespace-nowrap">
+                            {search
+                                ? `${filteredTrays.length} / ${trays.length} records`
+                                : `${trays.length} records`}
+                        </span>
                         <button
                             onClick={handleDownloadTemplate}
                             className="h-8 px-3 text-base rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
@@ -183,8 +211,13 @@ const MasterTrayTab = () => {
                     </div>
                 </div>
                 <div className="overflow-y-auto flex-1">
-                    {trays.length === 0 && (
+                    {/* {trays.length === 0 && (
                         <p className="text-center py-12 text-gray-300 text-sm">No records</p>
+                    )} */}
+                    {filteredTrays.length === 0 && (
+                        <p className="text-center py-12 text-gray-300 text-sm">
+                            {search ? `No part matching "${search}"` : 'No records'}
+                        </p>
                     )}
                     <table className="w-full">
                         <thead className="bg-gray-50 sticky top-0">
@@ -197,7 +230,8 @@ const MasterTrayTab = () => {
                             </tr>
                         </thead>
                         <tbody>
-                            {trays.map(t => (
+                            {/* {trays.map(t => ( */}
+                            {filteredTrays.map(t => (
                                 <tr key={t.id} className="border-b border-gray-50 hover:bg-gray-50">
                                     <td className="px-4 py-3 text-sm font-mono text-blue-600">{t.part_no}</td>
                                     <td className="px-4 py-3 text-sm text-gray-600">{t.pcs_stc?.toLocaleString()}</td>

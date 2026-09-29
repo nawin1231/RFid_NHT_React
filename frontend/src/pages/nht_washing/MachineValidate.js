@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { backendApi, washingApi } from '../../config/instance';
-import API from '../../config/constances';
+// import { backendApi, washingApi } from '../../config/instance';
+import { backendApi, washingApi, readerApi } from '../../config/instance';
+// import API from '../../config/constances';
 // import { backendApi, pythonApi } from '../../config/instance';
 import { useSearchParams } from 'react-router-dom';
 import Swal from 'sweetalert2';
-import axios from 'axios';
+// import axios from 'axios';
 
 const showAlert = (msg, type) => {
     Swal.fire({
@@ -50,21 +51,29 @@ const MachineValidate = () => {
     // const [readerIndex, setReaderIndex] = useState(0);
 
     // รันตอน location เปลี่ยน port
+    // เดิมต้องโหลด /location-ports มาหา port เองแล้วยิงตรงไป Python
+    // ซึ่งบังคับให้ IT เปิด NAT เพิ่ม 1 port ต่อ 1 location
+    // ตอนนี้ backend resolve location → reader ให้เอง (READER PROXY)
+    // useEffect(() => {
+    //     setDeviceReady(false);
+    //     backendApi.get('/location-ports').then(res => { //(main_dll)
+    //         const ports = res.data;
+    //         const config = location ? ports[location] : null;
+    //         if (config) {
+    //             setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
+    //         } else {
+    //             setDeviceApi(() => washingApi);
+    //         }
+    //         setDeviceReady(true);
+    //     }).catch(() => {
+    //         setDeviceApi(() => washingApi);
+    //         setDeviceReady(true);
+    //     });
     useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => { //(main_dll)
-            const ports = res.data;
-            const config = location ? ports[location] : null;
-            if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
-            } else {
-                setDeviceApi(() => washingApi);
-            }
-            setDeviceReady(true);
-        }).catch(() => {
-            setDeviceApi(() => washingApi);
-            setDeviceReady(true);
-        });
+        // ไม่มี ?location= ให้ fallback เป็น washingApi เหมือนพฤติกรรมเดิม
+        setDeviceApi(() => (location ? readerApi(location) : washingApi));
+        setDeviceReady(true);
         // backendApi.get('/location-ports').then(res => { //(main_multi)
         //     const ports = res.data;
         //     const config = location ? ports[location] : null;
