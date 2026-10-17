@@ -2,8 +2,8 @@
     {
         "port": 8000,
         "type": "register",
-        "enabled": true,
-        "ip": "192.168.1.190",
+        "enabled": false,
+        "ip": "192.168.1.101",
         "power": 10,
         "location": "REG1"
     },
@@ -11,15 +11,15 @@
         "port": 8001,
         "type": "pallet",
         "enabled": false,
-        "ip": "192.168.1.190",
-        "power": 25,
+        "ip": "192.168.1.101",
+        "power": 5,
         "location": "W1"
     },
     {
         "port": 8002,
         "type": "washing",
-        "enabled": false,
-        "ip": "192.168.1.190",
+        "enabled": true,
+        "ip": "192.168.1.101",
         "power": 10,
         "location": "WS-04"
     },
@@ -27,17 +27,17 @@
         "port": 8003,
         "type": "on_machine",
         "enabled": false,
-        "ip": "192.168.1.190",
-        "power": 10,
-        "location": "FL-01",
+        "ip": "192.168.1.101",
+        "power": 21,
+        "location": "FL-02",
         "min_qty": 2000
     },
     {
         "port": 8004,
         "type": "completed",
         "enabled": false,
-        "ip": "192.168.1.190",
-        "power": 10,
+        "ip": "192.168.1.101",
+        "power": 30,
         "location": "COM"
     }
 ]

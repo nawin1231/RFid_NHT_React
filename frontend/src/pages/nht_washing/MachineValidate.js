@@ -131,11 +131,11 @@ const MachineValidate = () => {
             }
             const data = res.data.data;
             // ยังไม่ได้ update pallet location
-            if (data.sub_process === 'registered') {
-                showAlert('Must update pallet location first!', 'warning');
-                return;
-            }
-
+            // if (data.sub_process === 'registered') {
+            //     showAlert('Must update pallet location first!', 'warning');
+            //     return;
+            // }
+    
             // แสดงข้อมูล lot ทันที ไม่ต้องรอครบ
             setLotInfo(data);
             setTagId(tag);

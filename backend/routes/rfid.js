@@ -94,6 +94,19 @@ const sendCheckingToAS400 = (machineList, { barcode, location, part_no }) => {
     }).catch(err => console.error('[AS400] checking error:', err.message));
 };
 
+// checking N (part ไม่ตรง) ครั้งเดียวต่อ lot ต่อเครื่อง
+// จำใน memory 2 ชม. · Node restart = ลืม → อาจส่ง N ซ้ำได้ 1 ครั้ง (ยอมรับได้)
+const CHECKING_N_DEDUP_MS = 2 * 60 * 60 * 1000;
+const checkingNSent = new Map(); // `${barcode}|${location}` → timestamp
+const sendCheckingNOnce = (machineList, args) => {
+    const now = Date.now();
+    for (const [k, t] of checkingNSent) if (now - t >= CHECKING_N_DEDUP_MS) checkingNSent.delete(k);
+    const key = `${args.barcode}|${args.location}`;
+    if (checkingNSent.has(key)) return;
+    checkingNSent.set(key, now);
+    sendCheckingToAS400(machineList, args);
+};
+
 
 // =========================================================
 // IT API PROXY
@@ -368,7 +381,6 @@ router.post('/pallet', async (req, res) => {
             // ทำเบื้องหลัง ตอบ Python ทันทีเหมือนเดิม · await = A1 รอ A2 ส่ง AS400 เสร็จ (หรือ timeout 8 วิ) ก่อน
             (async () => {
                 if (movedFrom) {
-                    console.log(`[pallet] lot ${lotData?.barcode} ย้าย ${movedFrom} → ${location} : A2 ${movedFrom} แล้ว A1 ${location}`);
                     await axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
                         barcode: lotData?.barcode, location: movedFrom, lot_data: lotData,
                     }).catch(err => console.error('[AS400] pallet-out (move) error:', err.message));
@@ -430,7 +442,12 @@ router.post('/washing', async (req, res) => {
             .input('process_code', sql.VarChar, process_code || null)
             .execute('Stored_tb_rfid_tray_after_washing');
 
-        const status = result.recordset[0]?.result ?? 'OK';
+        // const status = result.recordset[0]?.result ?? 'OK';
+        const row    = result.recordset[0] || {};
+        const status = row.result ?? 'OK';
+        // งานด่วน (2026-10-14): register → washing เลย ไม่ผ่าน pallet → SP ตอบ via_pallet = 0
+        // SP ยังไม่ได้ ALTER (ไม่มีคอลัมน์ via_pallet) → undefined → ถือเป็นงานธรรมดา = พฤติกรรมเดิม
+        const isUrgent = row.via_pallet === 0 || row.via_pallet === false;
         if (status === 'LOT_WASHED') {
             // เดิม await AS400 washing + sleep 5s + AS400 washing-result ตรงนี้ก่อนตอบกลับ
             // ทำให้ response ช้าและอาจชน timeout ฝั่ง Python (httpx timeout=5s ที่ scan_loop washing)
@@ -467,7 +484,26 @@ router.post('/washing', async (req, res) => {
                     // location = pallet ที่ lot วางล่าสุด (tb_rfid_lot.location ที่ SP lot_update_location อัปไว้)
                     // await = รอ as400.js ส่ง AS400 เสร็จ (หรือ timeout 8 วิ) ก่อน แล้วค่อยส่ง A3
                     // ส่งซ้ำไม่นับซ้ำ: as400.js /pallet-out เช็ค last event = PALLET_OUT → ALREADY_OUT
-                    if (lotData?.location) {
+                    // if (lotData?.location) {
+                    if (isUrgent) {
+                        // งานด่วน: ไม่เคยมี A1 ที่ pallet → A1 receive BF แล้ว A2 issue BF ก่อน A3 (ไม่ระบุ W1/W2)
+                        // location '' → as400.js ต่อเป็น `BF${location}` = 'BF'
+                        // await ทีละตัว = AS400 ได้ receive ก่อน issue เสมอ
+                        // 2026-10-16: เอา A1 ออก — jobtag มาถึง 1201 BF เองแล้ว (AS400 RS 1201 BF หลังจบ 1071)
+                        //   ส่ง RH 1201 BF ซ้ำ → รับเข้าซ้ำ แล้ว A2 ตัดออกทั้งหมด (G6348993: RS 2,146 + RH 2,146 → IH 4,292)
+                        //   เหลือ A2 ตัดออก 1201 BF → A3 → A4 · (ถ้า IT ยืนยันว่า A3/A4 ตัด BF ให้เอง จะเอา A2 ออกด้วย)
+                        // await axios.post(`${AS400_INTERNAL_URL}/pallet-in`, {
+                        //     tag_id,
+                        //     barcode: lotData?.barcode,
+                        //     location: '',
+                        //     lot_data: lotData,
+                        // }).catch(err => console.error('[AS400] pallet-in (urgent) error:', err.message));
+                        await axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
+                            barcode: lotData?.barcode,
+                            location: '',
+                            lot_data: lotData,
+                        }).catch(err => console.error('[AS400] pallet-out (urgent) error:', err.message));
+                    } else if (lotData?.location) {
                         await axios.post(`${AS400_INTERNAL_URL}/pallet-out`, {
                             barcode: lotData.barcode,
                             location: lotData.location,
@@ -562,7 +598,8 @@ router.post('/on-machine', async (req, res) => {
             partsToMatch.some(p => m.innerRingPart === p || m.outerRingPart === p)
         );
         if (!matchedMachine) {
-            sendCheckingToAS400(machineList, { barcode: lotData.barcode, location, part_no: lotData.part_no });
+            // sendCheckingToAS400(machineList, { barcode: lotData.barcode, location, part_no: lotData.part_no });
+            sendCheckingNOnce(machineList, { barcode: lotData.barcode, location, part_no: lotData.part_no });
             return res.json({ result: 'PART_MISMATCH' });
         }
 
@@ -584,6 +621,12 @@ router.post('/on-machine', async (req, res) => {
                 process_code: lotData.process_code,
                 process: lotData.process,
             }).catch(err => console.error('[AS400] on-machine-in error:', err.message));
+        }
+        // ส่ง part ที่ match กับเครื่องจริง (หลัง part convert) → Y + materialType ถูกตัว
+        if (status === 'LOT_ON_MACHINE') {
+            const matchedPart = partsToMatch.find(p =>
+                matchedMachine.innerRingPart === p || matchedMachine.outerRingPart === p);
+            sendCheckingToAS400(machineList, { barcode: lotData.barcode, location, part_no: matchedPart });
         }
         res.json({ result: status });
     } catch (err) {
@@ -666,12 +709,34 @@ router.post('/completed', async (req, res) => {
             .execute('Stored_tb_rfid_completed_select_by_tagid');
         const lotData = lotResult.recordset[0];
 
+        // ดึง jobtag + qty ของถาดไว้ก่อน
+        const trayResult = await pool.request()
+            .input('tag_id', sql.VarChar, tag_id)
+            .execute('Stored_tb_rfid_lot_select_by_tagid');
+        const trayData = trayResult.recordset[0];
+
         const result = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
             .input('process_code', sql.VarChar, lotData?.process_code || null)
             .execute('Stored_tb_rfid_tray_completed');
 
-        res.json({ result: result.recordset[0]?.result ?? 'OK' });
+        // res.json({ result: result.recordset[0]?.result ?? 'OK' });
+        const status = result.recordset[0]?.result ?? 'OK';
+
+        // A7 ON_MACHINE_OUT ทีละถาดตอนผ่าน completed
+        // SP ตอบ OK/LOT_COMPLETED ได้ครั้งเดียวต่อถาด (ครั้งต่อไป NOT_ON_MACHINE) → ไม่ส่งซ้ำ
+        // เครื่อง + trackId เอาจากแถว ON_MACHINE_IN ของถาดนี้ (as400.js)
+        if ((status === 'OK' || status === 'LOT_COMPLETED') && trayData?.barcode && trayData.result !== 'NOT_FOUND') {
+            axios.post(`${AS400_INTERNAL_URL}/on-machine-out`, {
+                tag_id,
+                barcode: trayData.barcode,
+                qty: trayData.tray_qty,
+            }).catch(err => console.error('[AS400] on-machine-out error:', err.message));
+        } else if (status === 'OK' || status === 'LOT_COMPLETED') {
+            console.error(`[completed] ${tag_id} completed แล้วแต่หา jobtag ไม่เจอ → ไม่ได้ส่ง A7`);
+        }
+
+        res.json({ result: status });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -698,6 +763,24 @@ router.get('/dashboard', async (req, res) => {
             summary: monitor.recordsets[0],  // นับ lot แยก sub_process
             lots: monitor.recordsets[1],  // lot list Ongoing
             history: history.recordsets[0],  // log history
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ดึง monitor summary + lot list ของช่วงเวลา (day/week/month)
+router.get('/dashboard/monitor', async (req, res) => {
+    try {
+        const period = ['day', 'week', 'month'].includes(req.query.period) ? req.query.period : 'day';
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('period', sql.VarChar, period)
+            .execute('Stored_tb_rfid_dashboard_monitor_period');
+        res.json({
+            period,
+            summary: result.recordsets[0],   // ปริมาณที่เข้าแต่ละ sub_process ในช่วงเวลา
+            lots: result.recordsets[1],      // lot ที่ขยับวันนี้
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -828,7 +911,6 @@ router.all('/reader/:location/*splat', async (req, res) => {
             || err.code
             || err.errors?.map(e => e.message || e.code).filter(Boolean).join('; ')
             || 'reader unreachable';
-        console.error(`[reader-proxy] ${req.params.location}: ${detail}`);
         res.status(err.response?.status || 502).json({
             error:    detail,
             location: req.params.location,

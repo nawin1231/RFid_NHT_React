@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getLocationPorts, backendApi } from '../../config/instance';
-import InfoPopover from '../../components/InfoPopover';
+import { backendApi } from '../../config/instance';
 
 const Location = () => {
     const navigate = useNavigate();

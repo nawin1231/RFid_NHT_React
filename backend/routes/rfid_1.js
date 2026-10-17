@@ -660,6 +660,24 @@ router.get('/dashboard', async (req, res) => {
     }
 });
 
+// ดึง monitor summary + lot list ของช่วงเวลา (day/week/month)
+router.get('/dashboard/monitor', async (req, res) => {
+    try {
+        const period = ['day', 'week', 'month'].includes(req.query.period) ? req.query.period : 'day';
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .input('period', sql.VarChar, period)
+            .execute('Stored_tb_rfid_dashboard_monitor_period');
+        res.json({
+            period,
+            summary: result.recordsets[0],   // ปริมาณที่เข้าแต่ละ sub_process ในช่วงเวลา
+            lots: result.recordsets[1],      // lot ที่ขยับวันนี้
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 router.get('/dashboard/:barcode', async (req, res) => {
     try {
         const pool = await poolPromise;
@@ -784,7 +802,6 @@ router.all('/reader/:location/*splat', async (req, res) => {
             || err.code
             || err.errors?.map(e => e.message || e.code).filter(Boolean).join('; ')
             || 'reader unreachable';
-        console.error(`[reader-proxy] ${req.params.location}: ${detail}`);
         res.status(err.response?.status || 502).json({
             error:    detail,
             location: req.params.location,

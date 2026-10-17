@@ -3,7 +3,7 @@
         "port": 8000,
         "type": "register"
     },
-    "W1": {
+    "WS-04": {
         "port": 8002,
         "type": "washing"
     }

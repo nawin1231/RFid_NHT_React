@@ -25,6 +25,7 @@ const TagSearch = () => {
     const [tagData, setTagData] = useState({});
     const [selected, setSelected] = useState(null);
     const [manualTag, setManualTag] = useState('');
+    const [jobSearch, setJobSearch] = useState('');   // ค้นหา Job / Barcode — กรองรายการ + สรุปถาดที่เจอ / ขาด
 
     const [readerIndex, setReaderIndex] = useState(0);
 
@@ -137,6 +138,34 @@ const TagSearch = () => {
     const selectedData = selected ? tagData[selected] : null;
     const sp = selectedData ? SUB_PROCESS_COLOR[selectedData.sub_process] : null;
 
+    // ===== ค้นหา Job / Barcode =====
+    const jobKey = jobSearch.trim().toUpperCase();
+    const visibleTags = jobKey
+        ? tags
+            .filter(t => (tagData[t]?.barcode || '').toUpperCase().includes(jobKey))
+            .sort((a, b) =>
+                (tagData[a].barcode || '').localeCompare(tagData[b].barcode || '') ||
+                (tagData[a].tray_no ?? 0) - (tagData[b].tray_no ?? 0))
+        : tags;
+
+    // สรุปต่อ lot: เจอกี่ถาด / ขาดถาดไหน
+    const jobSummary = jobKey
+        ? Object.values(visibleTags.reduce((acc, t) => {
+            const d = tagData[t];
+            const s = acc[d.barcode] || (acc[d.barcode] = {
+                barcode: d.barcode, part_no: d.part_no, tray_counter: d.tray_counter || 0, trayNos: new Set(),
+            });
+            if (d.tray_no != null) s.trayNos.add(Number(d.tray_no));
+            return acc;
+        }, {})).map(s => ({
+            ...s,
+            found: s.trayNos.size,
+            missing: Array.from({ length: s.tray_counter }, (_, i) => i + 1).filter(n => !s.trayNos.has(n)),
+        }))
+        : [];
+    // tag ที่ยังโหลดข้อมูล lot ไม่เสร็จ — ยังกรองไม่ได้ เลยแจ้งไว้ไม่ให้เข้าใจผิดว่าไม่เจอ
+    const loadingCount = tags.filter(t => tagData[t] === undefined).length;
+
     return (
         <div className="flex gap-4 h-full">
 
@@ -170,16 +199,53 @@ const TagSearch = () => {
                     </div>
                 </div>
 
+                {/* ค้นหา Job / Barcode — สแกนติดกี่ถาด ขาดถาดไหน */}
+                <div className="bg-white border border-gray-100 rounded-xl p-3">
+                    <p className="text-sm font-medium text-gray-500 mb-2">Search Job / Barcode</p>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={jobSearch}
+                            onChange={e => setJobSearch(e.target.value.toUpperCase())}
+                            placeholder="Type or scan barcode..."
+                            className="flex-1 h-9 px-2 text-sm font-mono border border-gray-200 rounded-lg
+                                       bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        {jobSearch && (
+                            <button
+                                onClick={() => setJobSearch('')}
+                                className="h-9 px-3 text-sm rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {jobKey && jobSummary.length === 0 && (
+                        <p className="mt-2 text-xs text-red-500">
+                            ไม่เจอ lot นี้ใน tag ที่สแกนได้
+                            {loadingCount > 0 && <span className="text-gray-400"> (กำลังโหลดข้อมูลอีก {loadingCount} tag)</span>}
+                        </p>
+                    )}
+                    {jobSummary.map(s => {
+                        const complete = s.tray_counter > 0 && s.missing.length === 0;
+                    })}
+                </div>
+
                 <div className="flex-1 bg-white border border-gray-100 rounded-xl flex flex-col overflow-hidden min-h-0">
                     <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
                         <p className="text-sm font-medium text-gray-500">Tags in range</p>
-                        <span className="text-sm text-gray-400">{tags.length} tags</span>
+                        {/* <span className="text-sm text-gray-400">{tags.length} tags</span> */}
+                        <span className="text-sm text-gray-400">
+                            {jobKey ? `${visibleTags.length}/${tags.length}` : tags.length} tags
+                        </span>
                     </div>
                     <div className="overflow-y-auto flex-1">
                         {tags.length === 0 && (
                             <p className="text-center py-8 text-gray-300 text-sm">No tags detected</p>
                         )}
-                        {tags.map(tag => {
+                        {/* {tags.map(tag => { */}
+                        {visibleTags.map(tag => {
                             const data = tagData[tag];
                             const sp2 = data ? SUB_PROCESS_COLOR[data.sub_process] : null;
                             const isActive = selected === tag;

@@ -1,0 +1,8 @@
+pm2 start pm2.config.js
+pm2 save
+
+pm2 list          # ดูรายการ app และเลข id (backend จะเป็น 0)
+pm2 restart 0     # restart หลังอัปโค้ดใหม่ (ใช้ pm2 restart rfid ก็ได้)
+pm2 logs 0        # ดู log
+pm2 stop 0        # หยุด
+pm2 save          # บันทึกรายการทุกครั้งที่เพิ่มหรือลบ app

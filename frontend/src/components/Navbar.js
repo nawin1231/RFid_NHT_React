@@ -34,8 +34,15 @@ const Navbar = () => {
     }, []);
 
     const showGuide = () => {
+        const guide = PageGuild[pathname];
         Swal.fire({
-            ...PageGuild[pathname],
+            title: guide.title,
+            html: `
+                <iframe src="${guide.pdf}#view=FitH" title="${guide.title}"
+                    style="width:100%;height:75vh;border:0;border-radius:6px;background:#f3f4f6"></iframe>
+                <a href="${guide.pdf}" target="_blank" rel="noopener noreferrer"
+                    style="display:inline-block;margin-top:8px;font-size:13px;color:#2563eb">เปิดในแท็บใหม่ ↗</a>
+            `,
             width: 1300,
             confirmButtonText: 'รับทราบ',
         });

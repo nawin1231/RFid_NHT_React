@@ -43,6 +43,11 @@ ON_MACHINE_RETRY_DELAY = 10  # วิ — Node ตอบ error / ต่อไม
 SEND_RETRY_DELAY       = 10  # วิ — A7 / A6 / A2 ส่งไม่สำเร็จ → เข้าคิว ลองใหม่ทุกเท่านี้
 PALLET_LOOKUP_RETRY    = 10  # วิ — pallet: /lot-by-tag พลาด → ลอง tag เดิมใหม่หลังเท่านี้
 
+ON_MACHINE_STAY        = 10  # วิ — on_machine: ต้องอ่านเจอต่อเนื่องนานเท่านี้ก่อนนับว่าขึ้นเครื่อง (กันอ่านชนถาดที่ถือผ่าน / เครื่องข้างๆ)
+ON_MACHINE_LOST        = 5  # วิ — อ่านหลุดนานกว่านี้ = เริ่มนับใหม่
+COMPLETED_DONE_TTL     = 600 # วิ — completed: tag ที่ทำเสร็จแล้ว ไม่ยิง /completed ซ้ำภายในเวลานี้ (ถาดวางกองค้างหน้า reader)
+COMPLETED_RETRY_DELAY  = 30  # วิ — completed: NOT_ON_MACHINE → ลองใหม่หลังเท่านี้
+
 # Process code ส่งไปให้ Node.js → Node.js lookup จาก tb_master_process
 PROCESS_MAPPING = {
     'washing':    {'process_code': '1201'},
@@ -76,6 +81,7 @@ rejected_tags            = set()  # tag ที่ถูก reject (part ไม�
 tags_disappeared_machine = {}   # {tag: timestamp} — รอ cooldown ก่อน out
 lot_checked              = set()  # barcode ที่ส่ง A6 checking ไปแล้วในรอบนี้
 on_machine_retry_after   = {}   # {tag: timestamp} — Node ตอบ error → ห้ามลองใหม่ก่อนเวลานี้
+tag_dwell_start          = {}   # {tag: timestamp} — เริ่มอ่านเจอต่อเนื่องตั้งแต่เมื่อไร
 
 # pallet tracking
 tags_on_pallet           = {}   # {tag: timestamp}
@@ -86,9 +92,7 @@ lot_confirmed_time       = {}   # {barcode: timestamp} — รอ PALLET_IN_COOL
 lot_confirmed            = set()  # barcode ที่ส่ง pallet-in แล้ว
 pallet_lookup_retry_after = {}  # {tag: timestamp} — /lot-by-tag พลาด → ห้ามลองใหม่ก่อนเวลานี้
 
-# คิวส่งซ้ำ A7 / A6 / A2 — {key: {"path", "payload", "at", "retry_unknown", "tries"}}
-# อยู่ใน memory (Python restart = คิวหาย) · key เช่น ("A7", tag), ("A6", barcode), ("A2", barcode)
-send_retry               = {}
+send_retry = {}
 
 scanning    = False
 scan_thread = None
@@ -255,9 +259,9 @@ def scan_loop():
 # ===== SCAN LOOP — on_machine =====
 def scan_loop_on_machine():
     """Loop สำหรับ reader type: on_machine
-    - tag เข้า → validate part กับ machine API → update DB → ส่ง A5 (move in)
-    - tag ครบ lot ครั้งแรก → ส่ง A6 checking
-    - tag ออกเกิน cooldown → ส่ง A7 (move out) + reset A6 tracking
+    - tag อยู่ต่อเนื่อง ON_MACHINE_STAY วิ → validate part กับ machine API → update DB → Node ส่ง A5 (move in) ครั้งเดียวต่อถาด
+    - lot ครบ → Node ส่ง A6 checking เอง
+    - tag ออกเกิน cooldown → ลด qty ที่แสดงผลเท่านั้น
     - part ไม่ตรง → alarm
     """
     global tags_on_machine, rejected_tags, current_qty, tag_qty, lot_checked
@@ -313,6 +317,19 @@ def scan_loop_on_machine():
                 #             continue
                 accumulated_tags = set(reader_state.get("accumulated_tags", {}).keys())
                 new_tags = accumulated_tags - set(tags_on_machine.keys()) - rejected_tags
+
+                # dwell — tag ต้องถูกอ่านเจอต่อเนื่อง ON_MACHINE_STAY วิ ก่อน (กัน A5 / alarm จากถาดที่แค่ผ่าน)
+                acc_ts = dict(reader_state.get("accumulated_tags", {}))   # {tag: เวลาที่อ่านเจอล่าสุด}
+                for t, last_seen in acc_ts.items():
+                    if now - last_seen > ON_MACHINE_LOST:
+                        tag_dwell_start.pop(t, None)          # อ่านหลุดนาน → เริ่มนับใหม่
+                    elif t not in tag_dwell_start:
+                        tag_dwell_start[t] = last_seen
+                for t in [t for t in tag_dwell_start if t not in acc_ts]:
+                    tag_dwell_start.pop(t, None)
+                new_tags = {t for t in new_tags
+                            if t in tag_dwell_start and now - tag_dwell_start[t] >= ON_MACHINE_STAY}
+
                 # tag ที่เพิ่งพลาด ยังไม่ถึงเวลาลองใหม่ → ข้ามไปก่อน
                 for t in [t for t, ts in on_machine_retry_after.items() if now >= ts]:
                     on_machine_retry_after.pop(t, None)
@@ -393,9 +410,9 @@ def scan_loop_on_machine():
                             reader_state["alarm_part"]    = mismatch_part
                             start_alarm()
                         # else:
-                        # เดิม: ทุกอย่างที่ไม่ใช่ข้างบน = สำเร็จ รวมถึง 500 (result=None) และข้อความ error จาก SP
-                        #       → นับ qty แล้ว แต่ DB ไม่ได้ update + ไม่ได้ส่ง A5 → ถาดไป completed ไม่ได้ (งานค้าง)
-                        elif result in ("OK", "LOT_ON_MACHINE"):
+                        # elif result in ("OK", "LOT_ON_MACHINE"):
+                        # ALREADY_ON_MACHINE = ถาดขึ้นเครื่องไปแล้ว (Node ไม่ส่ง A5 ซ้ำ) → นับ qty แสดงผลเหมือน OK
+                        elif result in ("OK", "LOT_ON_MACHINE", "ALREADY_ON_MACHINE"):
                             reader_state["alarm"] = False
                             stop_alarm()
                             tags_on_machine[tag] = now
@@ -417,29 +434,31 @@ def scan_loop_on_machine():
                             current_qty     += tray_qty_val
                             print(f"[on_machine] OK {tag} qty+={tray_qty_val} total={current_qty}")
 
-                            # เช็คว่า tag ครบ lot ไหม → ส่ง A6 checking ครั้งเดียว
-                            barcode      = tag_barcode.get(tag)
-                            tray_counter = lot_data.get("data", {}).get("tray_counter", 0) if lot_data else 0
-                            if barcode and tray_counter > 0:
-                                tags_of_lot = {t for t, b in tag_barcode.items() if b == barcode and t in tags_on_machine}
-                                if len(tags_of_lot) >= tray_counter and barcode not in lot_checked:
-                                    lot_checked.add(barcode)
-                                    print(f"[{time.strftime('%H:%M:%S')}] [A6 CHECKING] lot={barcode} → sending")
-                                    # try:
-                                    #     httpx.post(f"{NODE_URL}/on-machine-checking", json={
-                                    #         "barcode":  barcode,
-                                    #         "location": READER_PALLET_LOCATION,
-                                    #         "part_no":  tag_part_no.get(tag),
-                                    #     }, timeout=5)
-                                    # except Exception as ex:
-                                    #     print(f"[checking] error: {ex}")
-                                    # เดิม: lot_checked.add ก่อนส่ง + พลาดแล้วแค่ print → A6 ไม่ถูกส่งอีกเลย
-                                    # ตอนนี้: พลาดแบบมั่นใจว่าไม่ถึง → เข้าคิวส่งซ้ำ · timeout (ไม่แน่ใจ) → ไม่ส่งซ้ำ กัน A6 ขึ้น 2 แถว
-                                    send_or_queue(("A6", barcode), "/on-machine-checking", {
-                                        "barcode":  barcode,
-                                        "location": READER_PALLET_LOCATION,
-                                        "part_no":  tag_part_no.get(tag),
-                                    }, retry_unknown=False)
+                            # แบบ B (2026-10-16): A6 checking ย้ายไป Node ส่งตอน SP ตอบ LOT_ON_MACHINE (ครั้งเดียวต่อ lot)
+                            # เดิม: Python ส่งเองตอนเห็น tag ครบ lot หน้า reader → lot หลุดแล้วกลับมา = ส่งซ้ำ (P5)
+                            # # เช็คว่า tag ครบ lot ไหม → ส่ง A6 checking ครั้งเดียว
+                            # barcode      = tag_barcode.get(tag)
+                            # tray_counter = lot_data.get("data", {}).get("tray_counter", 0) if lot_data else 0
+                            # if barcode and tray_counter > 0:
+                            #     tags_of_lot = {t for t, b in tag_barcode.items() if b == barcode and t in tags_on_machine}
+                            #     if len(tags_of_lot) >= tray_counter and barcode not in lot_checked:
+                            #         lot_checked.add(barcode)
+                            #         print(f"[{time.strftime('%H:%M:%S')}] [A6 CHECKING] lot={barcode} → sending")
+                            #         # try:
+                            #         #     httpx.post(f"{NODE_URL}/on-machine-checking", json={
+                            #         #         "barcode":  barcode,
+                            #         #         "location": READER_PALLET_LOCATION,
+                            #         #         "part_no":  tag_part_no.get(tag),
+                            #         #     }, timeout=5)
+                            #         # except Exception as ex:
+                            #         #     print(f"[checking] error: {ex}")
+                            #         # เดิม: lot_checked.add ก่อนส่ง + พลาดแล้วแค่ print → A6 ไม่ถูกส่งอีกเลย
+                            #         # ตอนนี้: พลาดแบบมั่นใจว่าไม่ถึง → เข้าคิวส่งซ้ำ · timeout (ไม่แน่ใจ) → ไม่ส่งซ้ำ กัน A6 ขึ้น 2 แถว
+                            #         send_or_queue(("A6", barcode), "/on-machine-checking", {
+                            #             "barcode":  barcode,
+                            #             "location": READER_PALLET_LOCATION,
+                            #             "part_no":  tag_part_no.get(tag),
+                            #         }, retry_unknown=False)
 
                         else:
                             # Node ตอบ error (500 / SP rollback / ข้อความที่ไม่รู้จัก) → DB ไม่ได้ update และ Node ไม่ได้ส่ง A5
@@ -502,12 +521,15 @@ def scan_loop_on_machine():
                         #     print(f"[on-machine-out] error: {ex}")
                         # เดิม: state ถูก pop ไปแล้วก่อนส่ง + พลาดแล้วแค่ print → A7 หายถาวร AS400 ไม่ได้ MOVE_OUT
                         # ตอนนี้: state ยัง clear เหมือนเดิม (ถาดออกไปแล้วจริง) แต่ A7 ที่ส่งไม่ถึงเข้าคิวส่งซ้ำ
-                        send_or_queue(("A7", tag), "/on-machine-out", {
-                            "tag_id":   tag,
-                            "barcode":  tag_barcode.pop(tag, None),
-                            "qty":      qty_removed,
-                            "location": READER_PALLET_LOCATION,
-                        }, retry_unknown=False, tags=(tag,))
+                        # send_or_queue(("A7", tag), "/on-machine-out", {
+                        #     "tag_id":   tag,
+                        #     "barcode":  tag_barcode.pop(tag, None),
+                        #     "qty":      qty_removed,
+                        #     "location": READER_PALLET_LOCATION,
+                        # }, retry_unknown=False, tags=(tag,))
+                        # แบบ B (2026-10-16): ไม่ส่ง A7 ตอนถาดหายจาก reader เครื่องแล้ว (reader อ่านหลุด = OUT/IN วน · P1)
+                        #   → A7 ส่งจาก Node ตอนถาดผ่าน reader completed · ตรงนี้แค่ลด qty ที่แสดงผล
+                        tag_barcode.pop(tag, None)
 
                 if not (current_tags - set(tags_on_machine.keys())):
                     stop_alarm()
@@ -524,6 +546,8 @@ def scan_loop_completed():
     scan tag → ส่ง completed event ทีละ tray
     """
     seen_tags = {}
+    # จำว่า tag ไหนจบแล้ว ไม่ยิงซ้ำ COMPLETED_DONE_TTL วิ · NOT_ON_MACHINE เว้น COMPLETED_RETRY_DELAY วิ · ไม่ sleep
+    skip_until = {}   # {tag: timestamp} — ห้ามยิง /completed ก่อนเวลานี้
 
     while True:
         if not reader_state["connected"]:
@@ -535,6 +559,8 @@ def scan_loop_completed():
             now  = time.time()
 
             for tag in tags:
+                if now < skip_until.get(tag, 0):
+                    continue
                 if now - seen_tags.get(tag, 0) >= COOLDOWN:
                     seen_tags[tag] = now
                     print(f"[{time.strftime('%H:%M:%S')}] [COMPLETED] {tag}")
@@ -543,15 +569,21 @@ def scan_loop_completed():
                         result = res.json().get("result")
                         if result == "LOT_COMPLETED":
                             print(f"[completed] LOT COMPLETED: {tag}")
+                            skip_until[tag] = time.time() + COMPLETED_DONE_TTL
                         elif result == "NOT_ON_MACHINE":
-                            print(f"[completed] WARNING NOT_ON_MACHINE: {tag}")
-                            time.sleep(1)
-                        elif result not in ("OK",):
+                            print(f"[completed] WARNING NOT_ON_MACHINE: {tag} → retry in {COMPLETED_RETRY_DELAY}s")
+                            # time.sleep(1)
+                            skip_until[tag] = time.time() + COMPLETED_RETRY_DELAY
+                        elif result == "OK":
+                            skip_until[tag] = time.time() + COMPLETED_DONE_TTL
+                        # elif result not in ("OK",):
+                        else:
                             print(f"[completed] WARNING {result}: {tag}")
                     except Exception as ex:
                         print(f"[completed] error: {ex}")
 
             seen_tags = {k: v for k, v in seen_tags.items() if now - v < COOLDOWN}
+            skip_until = {k: v for k, v in skip_until.items() if now < v}
 
         except Exception as ex:
             print(f"[scan_loop_completed] error: {ex}")
