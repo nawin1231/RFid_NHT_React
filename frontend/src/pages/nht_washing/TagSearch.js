@@ -1,9 +1,7 @@
 // TagSearch.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { backendApi, pythonApi } from '../../config/instance';
-import API from '../../config/constance';
-import axios from 'axios';
+import { backendApi, pythonApi, readerApi } from '../../config/instance';
 
 const SUB_PROCESS_COLOR = {
     registered: { bg: 'bg-gray-100', text: 'text-gray-600', label: 'Registered' },
@@ -12,6 +10,9 @@ const SUB_PROCESS_COLOR = {
     on_machine: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'On Machine' },
     completed: { bg: 'bg-green-100', text: 'text-green-700', label: 'Completed' },
 };
+
+// ดึงข้อมูล lot ของ tag เดิมซ้ำได้ไม่ถี่กว่านี้ — จอยังอัปเดตสถานะได้ แต่ไม่ยิง SQL ทุกวินาที
+const LOT_REFRESH_MS = 10 * 1000;
 
 const TagSearch = () => {
 
@@ -24,25 +25,34 @@ const TagSearch = () => {
     const [tagData, setTagData] = useState({});
     const [selected, setSelected] = useState(null);
     const [manualTag, setManualTag] = useState('');
+    const [jobSearch, setJobSearch] = useState('');   // ค้นหา Job / Barcode — กรองรายการ + สรุปถาดที่เจอ / ขาด
 
     const [readerIndex, setReaderIndex] = useState(0);
 
-    // โหลด location-ports 
-    useEffect(() => { //(main_dll)
+    // เวลาที่ดึง /lot-by-tag ล่าสุดของแต่ละ tag {tag: timestamp}
+    // ต้องเป็น ref ไม่ใช่ state เพราะ setInterval ด้านล่างถูกสร้างครั้งเดียว มองไม่เห็น state ที่เปลี่ยนทีหลัง
+    const lastFetchRef = useRef({});
+
+    // โหลด location-ports
+    // useEffect(() => { //(main_dll)
+    //     setDeviceReady(false);
+    //     backendApi.get('/location-ports').then(res => {
+    //         const ports = res.data;
+    //         const config = location ? ports[location] : null;
+    //         if (config) {
+    //             setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
+    //         } else {
+    //             setDeviceApi(() => pythonApi);
+    //         }
+    //         setDeviceReady(true);
+    //     }).catch(() => {
+    //         setDeviceApi(() => pythonApi);
+    //         setDeviceReady(true);
+    //     });
+    useEffect(() => {
         setDeviceReady(false);
-        backendApi.get('/location-ports').then(res => {
-            const ports = res.data;
-            const config = location ? ports[location] : null;
-            if (config) {
-                setDeviceApi(() => axios.create({ baseURL: `${API.PYTHON_BASE}:${config.port}` }));
-            } else {
-                setDeviceApi(() => pythonApi);
-            }
-            setDeviceReady(true);
-        }).catch(() => {
-            setDeviceApi(() => pythonApi);
-            setDeviceReady(true);
-        });
+        setDeviceApi(() => (location ? readerApi(location) : pythonApi));
+        setDeviceReady(true);
         // backendApi.get('/location-ports').then(res => { (main_multi)
         //     const ports = res.data;
         //     const config = location ? ports[location] : null;
@@ -69,7 +79,14 @@ const TagSearch = () => {
                     return combined;
                 });
 
-                const newTags = list.filter(t => !tagData[t]);
+                // เดิม: tagData ใน setInterval ค้างเป็น {} ตลอด (stale closure) → ทุก tag ถูกมองว่าใหม่
+                //       → ยิง /lot-by-tag ทุก tag ทุกวินาทีพร้อมกัน (50 tag = 50 SQL/วิ ต่อ 1 จอ)
+                //       และ tag ที่ไม่เจอ (null) ก็ถูกยิงซ้ำตลอดเพราะ !null = true
+                // const newTags = list.filter(t => !tagData[t]);
+                const now = Date.now();
+                const newTags = list.filter(t => now - (lastFetchRef.current[t] || 0) >= LOT_REFRESH_MS);
+                // จองเวลาไว้ก่อนยิง กันรอบถัดไปยิง tag เดิมซ้อนระหว่างที่ request แรกยังไม่กลับ
+                newTags.forEach(t => { lastFetchRef.current[t] = now; });
                 await Promise.all(newTags.map(async (tag) => {
                     try {
                         const r = await backendApi.get(`/lot-by-tag/${tag}`);
@@ -78,7 +95,11 @@ const TagSearch = () => {
                         } else {
                             setTagData(prev => ({ ...prev, [tag]: null }));
                         }
-                    } catch { }
+                    // } catch { }
+                    } catch {
+                        // ดึงไม่สำเร็จ → ลบเวลาออก ให้รอบถัดไป (1 วิ) ลองใหม่ทันที
+                        delete lastFetchRef.current[tag];
+                    }
                 }));
             } catch { }
         }, 1000);
@@ -109,12 +130,41 @@ const TagSearch = () => {
     const clearAll = () => {
         setTags([]);
         setTagData({});
+        lastFetchRef.current = {};   // ล้างแล้ว tag ที่ยังอยู่หน้า reader ต้องถูกดึงใหม่ทันที
         setSelected(null);
         setManualTag('');
     };
 
     const selectedData = selected ? tagData[selected] : null;
     const sp = selectedData ? SUB_PROCESS_COLOR[selectedData.sub_process] : null;
+
+    // ===== ค้นหา Job / Barcode =====
+    const jobKey = jobSearch.trim().toUpperCase();
+    const visibleTags = jobKey
+        ? tags
+            .filter(t => (tagData[t]?.barcode || '').toUpperCase().includes(jobKey))
+            .sort((a, b) =>
+                (tagData[a].barcode || '').localeCompare(tagData[b].barcode || '') ||
+                (tagData[a].tray_no ?? 0) - (tagData[b].tray_no ?? 0))
+        : tags;
+
+    // สรุปต่อ lot: เจอกี่ถาด / ขาดถาดไหน
+    const jobSummary = jobKey
+        ? Object.values(visibleTags.reduce((acc, t) => {
+            const d = tagData[t];
+            const s = acc[d.barcode] || (acc[d.barcode] = {
+                barcode: d.barcode, part_no: d.part_no, tray_counter: d.tray_counter || 0, trayNos: new Set(),
+            });
+            if (d.tray_no != null) s.trayNos.add(Number(d.tray_no));
+            return acc;
+        }, {})).map(s => ({
+            ...s,
+            found: s.trayNos.size,
+            missing: Array.from({ length: s.tray_counter }, (_, i) => i + 1).filter(n => !s.trayNos.has(n)),
+        }))
+        : [];
+    // tag ที่ยังโหลดข้อมูล lot ไม่เสร็จ — ยังกรองไม่ได้ เลยแจ้งไว้ไม่ให้เข้าใจผิดว่าไม่เจอ
+    const loadingCount = tags.filter(t => tagData[t] === undefined).length;
 
     return (
         <div className="flex gap-4 h-full">
@@ -149,16 +199,53 @@ const TagSearch = () => {
                     </div>
                 </div>
 
+                {/* ค้นหา Job / Barcode — สแกนติดกี่ถาด ขาดถาดไหน */}
+                <div className="bg-white border border-gray-100 rounded-xl p-3">
+                    <p className="text-sm font-medium text-gray-500 mb-2">Search Job / Barcode</p>
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={jobSearch}
+                            onChange={e => setJobSearch(e.target.value.toUpperCase())}
+                            placeholder="Type or scan barcode..."
+                            className="flex-1 h-9 px-2 text-sm font-mono border border-gray-200 rounded-lg
+                                       bg-gray-50 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        />
+                        {jobSearch && (
+                            <button
+                                onClick={() => setJobSearch('')}
+                                className="h-9 px-3 text-sm rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50"
+                            >
+                                ✕
+                            </button>
+                        )}
+                    </div>
+
+                    {jobKey && jobSummary.length === 0 && (
+                        <p className="mt-2 text-xs text-red-500">
+                            ไม่เจอ lot นี้ใน tag ที่สแกนได้
+                            {loadingCount > 0 && <span className="text-gray-400"> (กำลังโหลดข้อมูลอีก {loadingCount} tag)</span>}
+                        </p>
+                    )}
+                    {jobSummary.map(s => {
+                        const complete = s.tray_counter > 0 && s.missing.length === 0;
+                    })}
+                </div>
+
                 <div className="flex-1 bg-white border border-gray-100 rounded-xl flex flex-col overflow-hidden min-h-0">
                     <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
                         <p className="text-sm font-medium text-gray-500">Tags in range</p>
-                        <span className="text-sm text-gray-400">{tags.length} tags</span>
+                        {/* <span className="text-sm text-gray-400">{tags.length} tags</span> */}
+                        <span className="text-sm text-gray-400">
+                            {jobKey ? `${visibleTags.length}/${tags.length}` : tags.length} tags
+                        </span>
                     </div>
                     <div className="overflow-y-auto flex-1">
                         {tags.length === 0 && (
                             <p className="text-center py-8 text-gray-300 text-sm">No tags detected</p>
                         )}
-                        {tags.map(tag => {
+                        {/* {tags.map(tag => { */}
+                        {visibleTags.map(tag => {
                             const data = tagData[tag];
                             const sp2 = data ? SUB_PROCESS_COLOR[data.sub_process] : null;
                             const isActive = selected === tag;

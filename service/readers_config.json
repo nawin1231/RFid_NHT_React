@@ -4,52 +4,40 @@
         "type": "register",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 12,
-        "location": "REG1",
-        "machine_parts": [],
-        "machine_no": ""
+        "power": 10,
+        "location": "REG1"
     },
     {
         "port": 8001,
         "type": "pallet",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 12,
-        "location": "W1",
-        "machine_parts": [],
-        "machine_no": ""
+        "power": 5,
+        "location": "W1"
     },
     {
         "port": 8002,
         "type": "washing",
-        "enabled": false,
+        "enabled": true,
         "ip": "192.168.1.101",
-        "power": 12,
-        "location": "WS-03",
-        "machine_parts": [],
-        "machine_no": "WS-03"
+        "power": 10,
+        "location": "WS-04"
     },
     {
         "port": 8003,
         "type": "on_machine",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 12,
-        "location": "FL-59",
-        "machine_parts": [
-            "2SF-608XZZAT-NTP93"
-        ],
-        "min_qty": 3000,
-        "machine_no": "FF-21"
+        "power": 21,
+        "location": "FL-02",
+        "min_qty": 2000
     },
     {
         "port": 8004,
         "type": "completed",
-        "enabled": true,
+        "enabled": false,
         "ip": "192.168.1.101",
-        "power": 12,
-        "location": "COM",
-        "machine_parts": [],
-        "machine_no": ""
+        "power": 30,
+        "location": "COM"
     }
 ]

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import API from './constance';
+import API from './constances';
 
 // Backend Node.js
 export const backendApi = axios.create({
@@ -36,3 +36,15 @@ export const urlParameter = (location) => {
 };
 
 export const getLocationPorts = () => locationPorts;
+
+// axios instance สำหรับคุยกับ reader ของ location นั้น ผ่าน READER PROXY ที่ backend
+//
+// เดิมทุกหน้าสร้าง instance ชี้ไป Python ตรงๆ ด้วย `${API.PYTHON_BASE}:${config.port}`
+// ซึ่งบังคับให้ IT ต้องเปิด NAT เพิ่ม 1 port ต่อ 1 location (2003, 2004, ...)
+// ตัวนี้ยิงผ่าน port 2002 ของ Node ที่เปิดอยู่แล้ว แล้วให้ Node ต่อไป Python
+// ในเครื่องเดียวกันแทน → ไม่ต้องขอ port ใหม่อีกเลยไม่ว่าจะเพิ่ม reader หรือเพิ่มหน้า
+//
+// path ของ Python ใช้เหมือนเดิมทุกตัวอักษร เช่น deviceApi.get('/new-tag')
+// เพราะ backend ต่อ path ที่เหลือส่งไปให้ Python ตรงๆ
+export const readerApi = (location) =>
+    axios.create({ baseURL: `${API.BACKEND}/reader/${encodeURIComponent(location)}` });

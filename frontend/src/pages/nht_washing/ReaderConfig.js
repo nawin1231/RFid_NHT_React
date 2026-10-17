@@ -38,6 +38,10 @@ const ReaderConfig = () => {
   const [readerSearch, setReaderSearch] = useState('')
   const [readerTypeFilter, setReaderTypeFilter] = useState('')
 
+  // search machinelist 
+  const [machineList, setMachineList] = useState([]);
+  const [machineSearch, setMachineSearch] = useState({});
+
   // filter Location Ports
   const [locSearch, setLocSearch] = useState('')
   const [locTypeFilter, setLocTypeFilter] = useState('')
@@ -51,6 +55,13 @@ const ReaderConfig = () => {
     return matchSearch && matchType
   })
 
+  // port ที่ซ้ำกันใน config
+  // port ซ้ำ = 2 process แย่ง port เดียวกัน → kill_process_by_port() ใน start_rfid.py
+  // จะ kill ตัวแรกทิ้งตอน start ตัวที่สอง ทำให้ reader ตัวนั้นตายเงียบๆ หาสาเหตุยากมาก
+  const duplicatePorts = readers
+    .map(r => r.port)
+    .filter((p, i, arr) => p != null && arr.indexOf(p) !== i);
+
   // filter location ports ตาม search และ type
   const filteredLocations = Object.entries(locationPorts).filter(([key, val]) => {
     const matchSearch = !locSearch ||
@@ -58,6 +69,11 @@ const ReaderConfig = () => {
     const matchType = !locTypeFilter || val.type === locTypeFilter
     return matchSearch && matchType
   })
+
+
+  useEffect(() => {
+    backendApi.get('/machine-list').then(res => setMachineList(res.data)).catch(() => { });
+  }, []);
 
   // ---- INIT ----
   useEffect(() => {
@@ -133,6 +149,15 @@ const ReaderConfig = () => {
   // บันทึก config ลงไฟล์ readers_config.json ผ่าน backend
   // start_rfid.py จะ detect การเปลี่ยนแปลงด้วย md5 hash และ restart process เองใน 3 วิ
   const saveConfig = async () => {
+    // กันไม่ให้ save ตอน port ซ้ำ เพราะถ้า save ไปแล้ว start_rfid.py จะ kill process
+    // ตัวที่ใช้ port เดียวกันทิ้ง → reader หายไปเงียบๆ โดยหน้าเว็บยังบอกว่า config ถูก
+    if (duplicatePorts.length > 0) {
+      return Swal.fire({
+        icon: 'error',
+        title: 'Port ซ้ำกัน',
+        text: `port ${[...new Set(duplicatePorts)].join(', ')} ถูกใช้มากกว่า 1 reader — แก้ให้ไม่ซ้ำก่อน save`,
+      });
+    }
     setLoading(true);
     try {
       await backendApi.put('/readers-config', readers);
@@ -254,7 +279,11 @@ const ReaderConfig = () => {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 sticky top-0">
                 <tr>
-                  {['Status', 'ID', 'On', 'Type', 'IP Address', 'Power', 'Location', 'Parts', 'MinQTY', 'Action'].map(col => (
+                  {/* {['Status', 'ID', 'On', 'Type', 'IP Address', 'Power', 'Location', 'MinQTY', 'Action'].map(col => ( */}
+                  {/* เปลี่ยน 'ID' เป็น 'Port' เพราะค่านี้คือ port ที่ Python ฟังจริง
+                      และตอนนี้ backend ใช้เลขนี้ resolve reader ผ่าน READER PROXY ด้วย
+                      เรียกว่า ID ทำให้เข้าใจผิดว่าเป็นเลขลำดับที่แก้ได้ตามใจ */}
+                  {['Status', 'Port', 'On', 'Type', 'IP Address', 'Power', 'Location', 'MinQTY', 'Action'].map(col => (
                     <th key={col} className="text-left px-2 py-2 text-xs font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
                       {col}
                     </th>
@@ -278,9 +307,18 @@ const ReaderConfig = () => {
 
                     {/* PORT — ใช้เป็น ID ของ process นั้น (main_dll.py 1 process per port) */}
                     <td className="px-2 py-2">
-                      <input type="number" value={r.port}
+                      {/* <input type="number" value={r.port}
                         onChange={e => updateReader(i, 'port', parseInt(e.target.value))}
                         className="w-16 h-7 px-1.5 text-xs font-mono border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                      /> */}
+                      {/* ขอบแดง + tooltip ถ้า port นี้ซ้ำกับ reader ตัวอื่น ให้เห็นก่อนกด Save */}
+                      <input type="number" value={r.port}
+                        onChange={e => updateReader(i, 'port', parseInt(e.target.value))}
+                        title={duplicatePorts.includes(r.port) ? `port ${r.port} ซ้ำกับ reader ตัวอื่น` : ''}
+                        className={`w-16 h-7 px-1.5 text-xs font-mono border rounded-lg bg-white focus:outline-none focus:ring-1
+                          ${duplicatePorts.includes(r.port)
+                            ? 'border-red-400 ring-1 ring-red-300 text-red-600 focus:ring-red-400'
+                            : 'border-gray-200 focus:ring-blue-400'}`}
                       />
                     </td>
 
@@ -319,26 +357,50 @@ const ReaderConfig = () => {
                       />
                     </td>
 
-                    {/* LOCATION — ชื่อตำแหน่งของ reader เช่น BFW1, BFW2 ใช้ใน AS400 trackId */}
-                    <td className="px-2 py-2">
-                      <input type="text" value={r.location}
-                        onChange={e => updateReader(i, 'location', e.target.value)}
-                        className="w-20 h-7 px-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
-                      />
-                    </td>
-
-                    {/* MACHINE PARTS — เฉพาะ type on_machine: part_no ที่เครื่องนี้รองรับ คั่นด้วย comma */}
                     <td className="px-2 py-2">
                       {r.type === 'on_machine' ? (
-                        <input type="text"
-                          value={(r.machine_parts || []).join(', ')}
-                          onChange={e => updateReader(i, 'machine_parts',
-                            e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                          )}
-                          placeholder="part1, part2"
-                          className="w-36 h-7 px-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={r.location}
+                            onChange={e => {
+                              updateReader(i, 'location', e.target.value);
+                              setMachineSearch(prev => ({ ...prev, [i]: e.target.value }));
+                            }}
+                            placeholder="Search machine..."
+                            className="w-28 h-7 px-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
+                          />
+                          {/* dropdown suggestion */}
+                          {machineSearch[i] && machineList
+                            .filter(m => m.machineNoProd?.toLowerCase().includes(machineSearch[i].toLowerCase()))
+                            .slice(0, 5)
+                            .length > 0 && (
+                              <div className="absolute top-8 left-0 z-50 bg-white border border-gray-200 rounded-lg shadow-lg w-48 max-h-40 overflow-y-auto">
+                                {machineList
+                                  .filter(m => m.machineNoProd?.toLowerCase().includes(machineSearch[i].toLowerCase()))
+                                  .slice(0,10)
+                                  .map(m => (
+                                    <button
+                                      key={m.machineNoProd}
+                                      onClick={() => {
+                                        updateReader(i, 'location', m.machineNoProd);
+                                        setMachineSearch(prev => ({ ...prev, [i]: '' }));
+                                      }}
+                                      className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 text-gray-700"
+                                    >
+                                      {m.machineNoProd}
+                                    </button>
+                                  ))
+                                }
+                              </div>
+                            )}
+                        </div>
+                      ) : (
+                        <input type="text" value={r.location}
+                          onChange={e => updateReader(i, 'location', e.target.value)}
+                          className="w-20 h-7 px-1.5 text-xs border border-gray-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400"
                         />
-                      ) : <span className="text-xs text-gray-300">—</span>}
+                      )}
                     </td>
 
                     {/* MIN QTY — เฉพาะ type on_machine: จำนวน tray ขั้นต่ำที่ต้องอยู่บน reader */}
@@ -452,41 +514,83 @@ const ReaderConfig = () => {
             <p className="text-[10px] text-gray-400 uppercase tracking-wider">Add Location</p>
 
             {/* ชื่อ location เช่น BFW1, W1 — จะถูก uppercase อัตโนมัติ */}
+            {/* เดิมให้พิมพ์ชื่อ location เอง ซึ่งพิมพ์ผิดแล้วหน้าเว็บจะ resolve reader ไม่เจอ
+                และไม่มีอะไรเตือน — เปลี่ยนไปเลือกจาก dropdown ด้านล่างแทน
             <input
               type="text"
               value={newLocKey}
               onChange={e => setNewLocKey(e.target.value.toUpperCase())}
               placeholder="Location (e.g. BFW1)"
               className="h-8 px-2 text-xs border border-gray-200 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-blue-400"
-            />
+            /> */}
 
             <div className="flex gap-2">
               {/* เลือก reader จาก list ที่ enabled และตรง type กับ newLocType */}
+              {/* เลือก reader ครั้งเดียวได้ทั้งชื่อ location และ port
+                  (เดิมต้องพิมพ์ชื่อเองแล้วเลือก reader แยก เสี่ยงใส่ไม่ตรงกัน)
+
+                  โค้ดเดิมของ select ตัวนี้ เก็บไว้เผื่อย้อนกลับ:
+                    onChange={e => setNewLocPort(e.target.value)}
+                    .filter(r => r.enabled !== false && r.type === newLocType)
+                    <option key={r.port} value={r.port}>{r.port} — {r.location} ({r.ip})</option>
+              */}
               <select
                 value={newLocPort}
-                onChange={e => setNewLocPort(e.target.value)}
-                className="h-8 px-2 text-xs border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                onChange={e => {
+                  const port = e.target.value;
+                  setNewLocPort(port);
+                  const picked = readers.find(x => String(x.port) === String(port));
+                  setNewLocKey((picked?.location || '').toUpperCase());
+                }}
+                className="h-8 text-xs border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
               >
                 <option value="">Select Reader</option>
                 {readers
-                  .filter(r => r.enabled !== false && r.type === newLocType)
+                  .filter(r => r.enabled !== false && r.type === newLocType && r.location)
                   .map(r => (
                     <option key={r.port} value={r.port}>
-                      {r.port} — {r.location} ({r.ip})
+                      {r.location} — port {r.port} ({r.ip})
                     </option>
                   ))
                 }
               </select>
 
               {/* type ของ location — กำหนดว่า frontend จะใช้ reader นี้ทำอะไร */}
+              {/* เปลี่ยน type แล้วต้องล้าง reader ที่เลือกไว้ ไม่งั้นจะค้างเป็น reader คนละ type
+                  โค้ดเดิม เก็บไว้เผื่อย้อนกลับ:  onChange={e => setNewLocType(e.target.value)} */}
               <select
                 value={newLocType}
-                onChange={e => setNewLocType(e.target.value)}
+                onChange={e => {
+                  setNewLocType(e.target.value);
+                  setNewLocPort('');
+                  setNewLocKey('');
+                }}
                 className="h-8 px-2 text-xs border border-gray-200 rounded-lg flex-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
               >
                 {LOCATION_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
+
+            {/* แสดงผลลัพธ์ที่จะถูกเพิ่มจริง ให้เห็นก่อนกดปุ่ม */}
+            {newLocKey && (
+              <div className="bg-blue-50 rounded-lg px-2 py-1.5">
+                <p className="text-[10px] text-blue-500 font-mono">
+                  {newLocKey} → port {newLocPort} · {newLocType}
+                </p>
+              </div>
+            )}
+            {/* เตือนถ้า location นี้มีอยู่แล้ว เพราะ addLocationPort จะเขียนทับของเดิม */}
+            {newLocKey && locationPorts[newLocKey] && (
+              <p className="text-[10px] text-amber-600">
+                ⚠ {newLocKey} มีอยู่แล้ว (port {locationPorts[newLocKey].port}) — กดเพิ่มจะเขียนทับ
+              </p>
+            )}
+            {/* ไม่มี reader ที่ type ตรงเลย บอกให้รู้ว่าต้องไปตั้ง type ที่ตาราง Readers ก่อน */}
+            {readers.filter(r => r.enabled !== false && r.type === newLocType && r.location).length === 0 && (
+              <p className="text-[10px] text-gray-400">
+                ไม่มี reader type "{newLocType}" ที่ enabled และตั้ง location ไว้
+              </p>
+            )}
 
             <button
               onClick={addLocationPort}

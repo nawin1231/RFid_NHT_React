@@ -4,7 +4,10 @@ import os
 import time
 import sys
 
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, 'readers_config.json')
 
 def kill_process_by_port(port):
@@ -36,11 +39,17 @@ def start_reader_process(index, reader):
     env = os.environ.copy()
     env['READER_INDEX']     = str(index)   # บอก main_dll.py ว่าตัวเองเป็น index ไหน
     env['PYTHONUNBUFFERED'] = '1'
-
-    cmd = [
-        sys.executable, '-m', 'uvicorn', 'main_dll:app',
-        '--port', str(port), '--log-level', 'warning'
-    ]
+    USE_EXE = False # True ขึ้น server จริง False ทดสอบบน localhost
+    # cmd = [
+    #     sys.executable, '-m', 'uvicorn', 'main_dll:app',
+    #     '--port', str(port), '--log-level', 'warning'
+    # ]
+    EXE_PATH = os.path.join(BASE_DIR, "rfid_service.exe")
+    if USE_EXE and os.path.exists(EXE_PATH):
+        cmd = [EXE_PATH]
+    else:
+        cmd = [sys.executable, '-m', 'uvicorn', 'main_dll:app',
+            '--port', str(port), '--log-level', 'warning']
     return subprocess.Popen(cmd, cwd=BASE_DIR, env=env)
 
 # เก็บ process แต่ละตัว อ้างอิงตาม port
