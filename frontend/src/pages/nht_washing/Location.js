@@ -36,7 +36,7 @@ const Location = () => {
                 placeholder="Search location..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="h-9 px-3 text-sm border border-gray-200 rounded-lg bg-gray-50 w-64
+                className="h-9 px-3 text-base border border-gray-200 rounded-lg bg-gray-50 w-64
                            focus:outline-none focus:ring-1 focus:ring-blue-400"
             />
 
@@ -45,10 +45,10 @@ const Location = () => {
                 {/* REGISTER */}
                 <div className="bg-white border border-gray-100 rounded-xl overflow-hidden overflow-y-auto">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-                        <p className="text-xs font-medium text-gray-500">Multi Register/Tag Search</p>
+                        <p className="text-xl font-medium text-gray-500">Multi Register/Tag Search</p>
                     </div>
                     <div className="overflow-y-auto max-h-96">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-base">
                             <tbody>
                                 {registers.length === 0 && (
                                     <tr>
@@ -79,14 +79,14 @@ const Location = () => {
                 {/* MACHINE VALIDATION */}
                 <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
-                        <p className="text-xs font-medium text-gray-500">Machine Validation</p>
+                        <p className="text-xl font-medium text-gray-500">Machine Validation</p>
                     </div>
                     <div className="overflow-y-auto max-h-96">
-                        <table className="w-full text-sm">
+                        <table className="w-full text-base">
                             <tbody>
                                 {washings.length === 0 && (
                                     <tr>
-                                        <td className="px-4 py-6 text-center text-gray-300 text-xs">
+                                        <td className="px-4 py-6 text-center text-gray-300 text-2xl">
                                             No location found
                                         </td>
                                     </tr>

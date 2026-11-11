@@ -35,35 +35,28 @@ const CARD_STEPS = [...STEPS];
 
 // ช่วงเวลาของ card — ตัวเลข = ปริมาณที่ "เข้า" แต่ละขั้นในช่วงนั้น
 const PERIODS = [
-  { key: "day", label: "วันนี้" },
-  { key: "week", label: "สัปดาห์นี้" },
-  { key: "month", label: "เดือนนี้" },
+  { key: "day", label: "today" },
+  { key: "week", label: "week" },
+  { key: "month", label: "month" },
 ];
 
-const EVENT_MAP = {
-  PALLET_IN: { tr: "Receive", sign: 1 },
-  PALLET_OUT: { tr: "Issue", sign: -1 },
-  WASHING_RUN: { tr: "Receive", sign: 1 },
-  WASHING_RESULT: { tr: "Issue", sign: -1 },
-  STOR_IN: { tr: "Receive", sign: 1 },
-  STOR_OUT: { tr: "Issue", sign: -1 },
-  ON_MACHINE_IN: { tr: "Receive", sign: 1 },
-  ON_MACHINE_OUT: { tr: "Issue", sign: -1 },
-  CHECKING: { tr: "-", sign: 0 },
-  JOB_PRINT: { tr: "Receive", sign: 1 },
-};
-
 const formatDate = (str) => {
-  if (!str) return "-";
-  const s = str.replace("T", " ").slice(0, 16);
-  const [date, time] = s.split(" ");
-  const [yyyy, mm, dd] = date.split("-");
-  return `${dd}/${mm}/${yyyy} ${time}`;
+  if (!str || str.startsWith("0001-01-01") || str.includes("1970-01-01")) return "-";
+  try {
+    const s = str.replace("T", " ").slice(0, 16);
+    const [date, time] = s.split(" ");
+    const [yyyy, mm, dd] = date.split("-");
+    
+    return `${dd}/${mm}/${yyyy} ${time}`;
+  } catch (err) {
+    console.error("Date formatting error:", err);
+    return "-";
+  }
 };
 
 const toDateStr = (d) => d.toISOString().slice(0, 10);
 const today = toDateStr(new Date());
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 
 const defaultFilter = {
   barcode: "",
@@ -77,7 +70,7 @@ const StepBadge = ({ step }) => {
   const b = STEP_BADGE[step] || { bg: "bg-gray-100", text: "text-gray-500" };
   return (
     <span
-      className={`text-xs px-2.5 py-1 rounded-full font-semibold ${b.bg} ${b.text}`}
+      className={`text-base px-2.5 py-1 rounded-full font-semibold ${b.bg} ${b.text}`}
     >
       {STEP_LABEL[step] || step}
     </span>
@@ -93,6 +86,7 @@ const Dashboard = () => {
   const [movementBarcode, setMovementBarcode] = useState("");
   const [movementData, setMovementData] = useState(null);
   const [movementLoading, setMovementLoading] = useState(false);
+  const [movementError, setMovementError] = useState("");
   const [tab, setTab] = useState("monitor");
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -145,11 +139,13 @@ const Dashboard = () => {
   const fetchMovement = async (barcode) => {
     if (!barcode) return;
     setMovementLoading(true);
+    setMovementError("");
     try {
       const res = await backendApi.get(`/dashboard/${barcode}`);
       setMovementData(res.data);
-    } catch {
+    } catch (err) {
       setMovementData(null);
+      setMovementError(err.response?.data?.error || "ดึงข้อมูลไม่ได้");
     } finally {
       setMovementLoading(false);
     }
@@ -235,58 +231,7 @@ const Dashboard = () => {
       summary.find((s) => s.sub_process === step)?.total_qty ?? 0
     ).toLocaleString();
 
-  const expandRows = (rows, lotQty) => {
-    if (!rows) return [];
-    const result = [];
-
-    let storIssued = false; // Issue STOR เกิดแค่ครั้งเดียว
-
-    // งานด่วน: ไม่มี PALLET_IN เติม Receive ให้ ไม่งั้น On-Hand ติดลบ
-    const first = rows.find((r) => r.event_type !== "CHECKING");
-    if (first && !rows.some((r) => r.event_type === "PALLET_IN")) {
-      result.push({
-        ...first,
-        event_type: "JOB_PRINT",
-        process: "1201",
-        location: "BF",
-        machine_no: null,
-        production_qty: lotQty,
-      });
-    }
-
-    rows.forEach((r) => {
-      if (r.event_type === "WASHING_RESULT") {
-        // Issue 1201 RUN ก่อน
-        result.push(r);
-        // Receive STOR BF
-        result.push({
-          ...r,
-          event_type: "STOR_IN",
-          process: "STOR",
-          location: "BF",
-        });
-      } else if (r.event_type === "ON_MACHINE_IN") {
-        // Issue STOR ครั้งเดียวก่อน tag แรก
-        if (!storIssued) {
-          result.push({
-            ...r,
-            event_type: "STOR_OUT",
-            process: "STOR",
-            location: "BF",
-            production_qty: lotQty,
-          });
-          storIssued = true;
-        }
-        // Receive 1520 BF ทีละ tag
-        result.push(r);
-      } else if (r.event_type === "CHECKING") return;
-      else {
-        result.push(r);
-      }
-    });
-
-    return result;
-  };
+  // Movement มาจาก AS400 ตรงๆ (เดิมประกอบเองจาก tb_rfid_as400_log)
   return (
     <div className="flex flex-col gap-3 h-full">
       {/* TABS */}
@@ -307,7 +252,7 @@ const Dashboard = () => {
           ))}
         </div>
         {lastRefresh && (
-          <p className="text-xs text-gray-400">
+          <p className="text-base text-gray-400">
             Updated {lastRefresh.toLocaleTimeString("th-TH")}
           </p>
         )}
@@ -335,7 +280,7 @@ const Dashboard = () => {
                 <button
                   key={p.key}
                   onClick={() => setPeriod(p.key)}
-                  className={`px-3 py-1 text-xs rounded-md font-medium transition-colors ${period === p.key ? "bg-white text-gray-900" : "text-gray-400 hover:text-gray-200"}`}
+                  className={`px-3 py-1 text-base rounded-md font-medium transition-colors ${period === p.key ? "bg-white text-gray-900" : "text-gray-400 hover:text-gray-200"}`}
                 >
                   {p.label}
                 </button>
@@ -345,7 +290,7 @@ const Dashboard = () => {
               {CARD_STEPS.map((step, i, arr) => (
                 <React.Fragment key={step}>
                   <div className="flex-1">
-                    <p className="text-xs font-semibold text-gray-400 tracking-widest uppercase">
+                    <p className="text-lg font-semibold text-gray-400 tracking-widest uppercase">
                       {STEP_LABEL[step]}
                     </p>
                     <p
@@ -353,7 +298,7 @@ const Dashboard = () => {
                     >
                       {getQty(step)}
                     </p>
-                    <p className="text-xs text-gray-500 mt-1">Qty</p>
+                    <p className="text-base text-gray-500 mt-1">Qty</p>
                   </div>
                   {i < arr.length - 1 && (
                     <div className="w-px h-10 bg-gray-700 shrink-0" />
@@ -370,10 +315,10 @@ const Dashboard = () => {
                                 Active lots
                                 <span className="ml-2 text-xs font-normal text-blue-500">{lots.length} records</span>
                             </p> */}
-              <p className="text-sm font-semibold text-gray-600">
+              <p className="text-lg font-semibold text-gray-600">
                 {/* Lots วันนี้ */}
                 Lots {PERIODS.find((p) => p.key === period)?.label}
-                <span className="ml-2 text-xs font-normal text-blue-500">
+                <span className="ml-2 text-base font-normal text-blue-500">
                   {lots.length} records
                 </span>
               </p>
@@ -394,7 +339,7 @@ const Dashboard = () => {
                     ].map((col) => (
                       <th
                         key={col}
-                        className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider"
+                        className="text-left px-4 py-2.5 text-base font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider"
                       >
                         {col}
                       </th>
@@ -406,10 +351,9 @@ const Dashboard = () => {
                     <tr>
                       <td
                         colSpan={8}
-                        className="text-center py-12 text-gray-300 text-sm"
+                        className="text-center py-12 text-gray-300 text-2xl"
                       >
-                        {PERIODS.find((p) => p.key === period)?.label}ยังไม่มี
-                        lot
+                        No Jobtag found for {PERIODS.find((p) => p.key === period)?.label}
                       </td>
                     </tr>
                   )}
@@ -425,28 +369,28 @@ const Dashboard = () => {
                         fetchMovement(l.barcode);
                       }}
                     >
-                      <td className="px-4 py-2.5 text-xs text-gray-700">
+                      <td className="px-4 py-2.5 text-base text-gray-700">
                         {i + 1}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">
+                      <td className="px-4 py-2.5 text-base font-semibold text-blue-600 font-mono">
                         {l.barcode}
                       </td>
                       <td className="px-4 py-2.5">
                         <StepBadge step={l.sub_process} />
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-semibold text-gray-700">
                         {l.part_no}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
-                        {l.location}
+                      <td className="px-4 py-2.5 text-base font-semibold text-gray-700">
+                        {l.location || "-"}
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-bold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-bold text-gray-700">
                         {(l.quantity ?? 0).toLocaleString()}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-semibold text-gray-700">
                         {l.tray_done}/{l.tray_counter}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-semibold text-gray-700">
                         {formatDate(l.updated_at)}
                       </td>
                     </tr>
@@ -463,7 +407,7 @@ const Dashboard = () => {
         <>
           {/* FILTER */}
           <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 shrink-0">
-            <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex items-end gap-2 flex-wrap text">
               {[
                 { name: "date_from", label: "Date From", type: "date" },
                 { name: "date_to", label: "Date To", type: "date" },
@@ -481,7 +425,7 @@ const Dashboard = () => {
                 },
               ].map(({ name, label, type, placeholder }) => (
                 <div key={name} className="flex flex-col gap-1 flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 whitespace-nowrap">
+                  <p className="text-base text-gray-400 whitespace-nowrap">
                     {label}
                   </p>
                   <input
@@ -496,7 +440,7 @@ const Dashboard = () => {
                 </div>
               ))}
               <div className="flex flex-col gap-1">
-                <p className="text-xs text-gray-400">Sub Process</p>
+                <p className="text-base text-gray-400">Sub Process</p>
                 <select
                   name="sub_process"
                   value={filter.sub_process}
@@ -530,9 +474,9 @@ const Dashboard = () => {
           {/* TABLE */}
           <div className="flex-1 bg-white border border-gray-200 rounded-xl flex flex-col overflow-hidden min-h-0">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
-              <p className="text-sm font-semibold text-gray-600">
+              <p className="text-lg font-semibold text-gray-600">
                 History
-                <span className="ml-2 text-xs font-normal text-blue-500">
+                <span className="ml-2 text-base font-normal text-blue-500">
                   {filtered.length} records
                 </span>
               </p>
@@ -542,7 +486,7 @@ const Dashboard = () => {
                             </button> */}
               <button
                 onClick={handleExport}
-                className="h-8 px-3 text-base rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
+                className="h-8 px-3 text-2xl rounded-lg border border-green-200 text-green-500 hover:bg-green-50 flex items-center gap-1"
               >
                 <DownloadOutlined /> <FileExcelOutlined />
               </button>
@@ -565,7 +509,7 @@ const Dashboard = () => {
                     ].map((col) => (
                       <th
                         key={col}
-                        className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider"
+                        className="text-left px-4 py-2.5 text-base font-semibold text-gray-400 border-b border-gray-100 whitespace-nowrap uppercase tracking-wider"
                       >
                         {col}
                       </th>
@@ -577,9 +521,9 @@ const Dashboard = () => {
                     <tr>
                       <td
                         colSpan={10}
-                        className="text-center py-12 text-gray-300 text-sm"
+                        className="text-center py-12 text-gray-300 text-2xl"
                       >
-                        No records found
+                        No records Found
                       </td>
                     </tr>
                   )}
@@ -594,35 +538,35 @@ const Dashboard = () => {
                         fetchMovement(h.barcode);
                       }}
                     >
-                      <td className="px-4 py-2.5 text-xs text-gray-400">
+                      <td className="px-4 py-2.5 text-base text-gray-400">
                         {(page - 1) * PAGE_SIZE + i + 1}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-blue-600 font-mono">
+                      <td className="px-4 py-2.5 text-base font-semibold text-blue-600 font-mono">
                         {h.barcode}
                       </td>
                       <td className="px-4 py-2.5">
                         <StepBadge step={h.sub_process} />
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-semibold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-semibold text-gray-700">
                         {h.part_no}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-mono text-gray-500">
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-500">
                         {h.process_code}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-gray-500">
+                      <td className="px-4 py-2.5 text-base text-gray-500">
                         {h.process}
                       </td>
-                      <td className="px-4 py-2.5 text-sm font-bold text-gray-700">
+                      <td className="px-4 py-2.5 text-base font-bold text-gray-700">
                         {(h.quantity ?? 0).toLocaleString()}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-gray-500">
+                      <td className="px-4 py-2.5 text-base text-gray-500">
                         {h.tray_counter}
                       </td>
-                      <td className="px-4 py-2.5 text-xs font-mono text-gray-500">
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-500">
                         {h.location}
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-gray-400">
-                        {formatDate(h.created_at)}
+                      <td className="px-4 py-2.5 text-base text-gray-400">
+                        {formatDate(h.updated_at)}
                       </td>
                     </tr>
                   ))}
@@ -699,24 +643,37 @@ const Dashboard = () => {
                 {movementLoading ? "..." : "Search"}
               </button>
             </div>
-            {/* lot info */}
-            {movementData?.lot && (
-              <div className="flex gap-4 mt-2 text-xs text-gray-500">
+            {/* lot info: part/lot/qty จาก DB เรา (ไม่มี → part จาก AS400) · Cur Proc/Loc จาก AS400 */}
+            {(movementData?.lot || movementData?.wip) && (
+              <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
                 <span>
                   Part No:{" "}
-                  <b className="text-gray-700">{movementData.lot.part_no}</b>
+                  <b className="text-gray-700">
+                    {movementData.lot?.part_no || movementData.wip?.part_name || "-"}
+                  </b>
                 </span>
                 <span>
                   Lot No:{" "}
-                  <b className="text-gray-700">{movementData.lot.lot_no}</b>
+                  <b className="text-gray-700">{movementData.lot?.lot_no || "-"}</b>
                 </span>
                 <span>
                   Qty:{" "}
                   <b className="text-gray-700">
-                    {(movementData.lot.quantity ?? 0).toLocaleString()}
+                    {movementData.lot ? (movementData.lot.quantity ?? 0).toLocaleString() : "-"}
                   </b>
                 </span>
+                {movementData.wip && (
+                  <span>
+                    Cur Proc/Loc:{" "}
+                    <b className="text-fuchsia-600">
+                      {movementData.wip.current_process} {movementData.wip.current_location}
+                    </b>
+                  </span>
+                )}
               </div>
+            )}
+            {movementError && (
+              <p className="mt-2 text-xs text-red-500">{movementError}</p>
             )}
           </div>
 
@@ -727,17 +684,17 @@ const Dashboard = () => {
                 <thead className="bg-gray-50 sticky top-0">
                   <tr>
                     {[
-                      "Datetime",
+                      "DateTime",
                       "Tranfer",
                       "Process",
                       "Location",
                       "Machine No",
                       "Quantity",
-                      "On-Hand",
+                      "Operator",
                     ].map((col) => (
                       <th
                         key={col}
-                        className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 border-b border-gray-100 uppercase tracking-wider"
+                        className="text-left px-4 py-2.5 text-base font-semibold text-gray-400 border-b border-gray-100 uppercase tracking-wider"
                       >
                         {col}
                       </th>
@@ -749,9 +706,9 @@ const Dashboard = () => {
                     <tr>
                       <td
                         colSpan={7}
-                        className="text-center py-12 text-gray-300 text-sm"
+                        className="text-center py-12 text-gray-300 text-2xl"
                       >
-                        กรอก barcode แล้วกด Search
+                        Please enter Jobtag to view Work in Process.
                       </td>
                     </tr>
                   )}
@@ -765,69 +722,45 @@ const Dashboard = () => {
                       </td>
                     </tr>
                   )}
-                  {(() => {
-                    let onHand = 0;
-                    return expandRows(
-                      movementData?.rows,
-                      movementData?.lot?.quantity,
-                    ).map((r, i) => {
-                      const ev = EVENT_MAP[r.event_type] || {
-                        tr: r.event_type,
-                        sign: 0,
-                      };
-                      onHand += ev.sign * (r.production_qty || 0);
-                      // const ts = new Date(r.timestamp);
-                      return (
-                        <tr
-                          key={i}
-                          className="border-b border-gray-50 hover:bg-gray-50"
-                        >
-                          <td className="px-4 py-2.5 text-xs text-gray-500">
-                            {formatDate(r.timestamp)}
-                          </td>
-                          <td
-                            className={`px-4 py-2.5 text-xs font-semibold ${ev.tr === "Receive" ? "text-emerald-600" : ev.tr === "Issue" ? "text-red-400" : "text-gray-400"}`}
-                          >
-                            {ev.tr}
-                          </td>
-                          <td className="px-4 py-2.5 text-xs font-mono text-gray-600">
-                            {r.process}
-                          </td>
-                          <td className="px-4 py-2.5 text-xs font-mono text-gray-600">
-                            {r.location}
-                          </td>
-                          <td className="px-4 py-2.5 text-xs font-mono text-gray-600">
-                            {r.machine_no || "-"}
-                          </td>
-                          <td className="px-4 py-2.5 text-sm font-bold text-gray-700">
-                            {(r.production_qty ?? 0).toLocaleString()}
-                          </td>
-                          <td className="px-4 py-2.5 text-sm font-bold text-blue-600">
-                            {onHand.toLocaleString()}
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })()}
+                  {(movementData?.rows || []).map((r, i) => (
+                    <tr
+                      key={i}
+                      className="border-b border-gray-50 hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-2.5 text-base text-gray-500">
+                        {formatDate(r.date)}
+                      </td>
+                      {/* R = Receive (เขียว) · I = Issue (แดง) */}
+                      <td
+                        className={`px-4 py-2.5 text-base font-semibold ${r.tr?.startsWith("R") ? "text-emerald-600" : r.tr?.startsWith("I") ? "text-red-400" : "text-gray-400"}`}
+                      >
+                        {r.tr}
+                      </td>
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-600">
+                        {r.process}
+                      </td>
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-600">
+                        {r.location}
+                      </td>
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-600">
+                        {r.machine_no || "-"}
+                      </td>
+                      <td className="px-4 py-2.5 text-base font-bold text-gray-700">
+                        {(r.qty ?? 0).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2.5 text-base font-mono text-gray-600">
+                        {r.operator || "-"}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            {/* On-Hand footer */}
-            {movementData?.rows?.length > 0 && (
+            {/* On-Hand จาก AS400 */}
+            {movementData?.wip && (
               <div className="px-4 py-2.5 border-t border-gray-100 flex justify-end shrink-0">
                 <p className="text-sm font-bold text-blue-600">
-                  On-Hand:{" "}
-                  {(() => {
-                    return expandRows(
-                      movementData?.rows,
-                      movementData?.lot?.quantity,
-                    )
-                      .reduce((acc, r) => {
-                        const ev = EVENT_MAP[r.event_type] || { sign: 0 };
-                        return acc + ev.sign * (r.production_qty || 0);
-                      }, 0)
-                      .toLocaleString();
-                  })()}
+                  On-Hand: {(movementData.wip.on_hand ?? 0).toLocaleString()}
                 </p>
               </div>
             )}

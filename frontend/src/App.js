@@ -16,6 +16,8 @@ import { loadLocationPorts } from './config/instance';
 import { AuthProvider } from './config/auth';
 import SecureRoute from './components/SecureRoute';
 import Management from './pages/nht_washing/Management';
+import MbrMonitor_qty from './pages/nht_washing/MbrMonitor_qty'
+import MultiRegisterHandheld from './pages/nht_washing/MultiRegisterHandheld';
 
 function App() {
   useEffect(() => {
@@ -40,6 +42,7 @@ function App() {
             {/* <Route index element={<Navigate to="/location-reader" replace />} /> */}
             <Route path="dashboard" element={<SecureRoute><Dashboard /></SecureRoute>} />
             <Route path="multi-register" element={<SecureRoute><MultiRegister /></SecureRoute>} />
+            <Route path="multi-register-handheld" element={<SecureRoute><MultiRegisterHandheld /></SecureRoute>} />
             {/* <Route path="history" element={
                 <SecureRoute><History /></SecureRoute>
               } /> */}
@@ -50,6 +53,7 @@ function App() {
             <Route path="location-reader" element={<SecureRoute><Location /></SecureRoute>} />
             <Route path="tag-search" element={<SecureRoute><TagSearch /></SecureRoute>} />
             <Route path="mbr-monitor" element={<SecureRoute><MbrMonitor /></SecureRoute>} />
+            <Route path="mbr-monitor-qty" element={<SecureRoute><MbrMonitor_qty /></SecureRoute>} />
             <Route path="/management" element={
               <SecureRoute requireAuth><Management /></SecureRoute>
             } />

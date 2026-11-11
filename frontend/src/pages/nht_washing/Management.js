@@ -4,6 +4,7 @@ import { useAuth } from '../../config/auth';
 import UserTab from './Management/UserTab';
 import MasterTray from './Management/MasterTrayTab';
 import MasterProcess from './Management/MasterProcessTab';
+import WaitingRegister from './Management/WaitingRegisterTab';
 import ReaderConfig from './ReaderConfig';
 import LoginModal from '../../components/LoginModal';
 
@@ -12,6 +13,7 @@ const TABS = [
     { key: 'user', label: 'Users' },
     { key: 'master-tray', label: 'Master Tray' },
     { key: 'master-process', label: 'Master Process' },
+    { key: 'waiting-register', label: 'Clear Waiting' },
 ];
 
 const Management = () => {
@@ -54,6 +56,7 @@ const Management = () => {
                 {activeTab === 'master-tray' && <MasterTray />}
                 {activeTab === 'reader' && <ReaderConfig />}
                 {activeTab === 'master-process' && <MasterProcess />}
+                {activeTab === 'waiting-register' && <WaitingRegister />}
             </div>
 
         </div>

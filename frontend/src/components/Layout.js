@@ -8,16 +8,16 @@ const Layout = () => {
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
       <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0">
+      
+      <div className="flex flex-col flex-1 min-w-0 relative">
         <Navbar />
-        <main className="flex-1 overflow-hidden p-4">
+        <main className="flex-1 overflow-auto p-4">
           <Outlet />
         </main>
+        
         <Footer />
       </div>
-
     </div>
-
   );
 };
 

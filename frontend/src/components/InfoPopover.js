@@ -61,7 +61,7 @@ const InfoPopover = ({ title, content, width = 260 }) => {
           )}
 
           {/* เนื้อหา */}
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          <div style={{ fontSize: 12, color: 'var(--c-secondary)', lineHeight: 1.6 }}>
             {content}
           </div>
 

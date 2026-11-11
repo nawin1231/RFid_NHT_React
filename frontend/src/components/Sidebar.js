@@ -47,11 +47,17 @@ const Sidebar = () => {
             icon: <TagOutlined />,
             path: '/location-reader',
         },
+        // {
+        //     label: 'Multi Register',
+        //     icon: <ScanOutlined />,
+        //     path: '/multi-register',
+        //     onClick: () => safeNavigate(buildPath('/multi-register', 'register')),
+        // },
         {
-            label: 'Multi Register',
+            label: 'Register Handheld',
             icon: <ScanOutlined />,
-            path: '/multi-register',
-            onClick: () => safeNavigate(buildPath('/multi-register', 'register')),
+            path: '/multi-register-handheld',
+            onClick: () => safeNavigate(buildPath('/multi-register-handheld', 'register')),
         },
         {
             label: 'Tag Search',
@@ -59,16 +65,21 @@ const Sidebar = () => {
             path: '/tag-search',
             onClick: () => safeNavigate(buildPath('/tag-search', 'register')),
         },
-        {
-            label: 'Machine Validation',
-            icon: <ToolOutlined />,
-            path: '/machine-validation',
-            onClick: () => safeNavigate(buildPath('/machine-validation', 'washing')),
-        },
+        // {
+        //     label: 'Machine Validation',
+        //     icon: <ToolOutlined />,
+        //     path: '/machine-validation',
+        //     onClick: () => safeNavigate(buildPath('/machine-validation', 'washing')),
+        // },
         {
             label: 'MBR Monitor',
             icon: <AppstoreOutlined />,
             path: '/mbr-monitor',
+        },
+        {
+            label: 'MBR Monitor QTY',
+            icon: <AppstoreOutlined />,
+            path: '/mbr-monitor-qty',
         },
         {
             label: 'Management',
@@ -103,12 +114,12 @@ const Sidebar = () => {
                     <span className="text-gray-400 text-base"><AppstoreOutlined /></span>
                 ) : (
                     <div className="w-full">
-                        <p className="text-sm font-semibold text-gray-800">RFID System</p>
-                        <p className="text-xs text-gray-400">Washing</p>
+                        <p className="text-xl font-semibold text-gray-800">RFID System</p>
+                        <p className="text-base text-gray-400">Washing</p>
                         {user && (
                             <div className="mt-2 pt-2 border-t border-gray-100">
-                                <p className="text-xs font-medium text-gray-700 truncate">{user.eng_name}</p>
-                                <p className="text-xs text-blue-400">{user.position}</p>
+                                <p className="text-base font-medium text-gray-700 truncate">{user.eng_name}</p>
+                                <p className="text-sm text-blue-400">{user.position}</p>
                             </div>
                         )}
                     </div>
@@ -122,7 +133,7 @@ const Sidebar = () => {
                         key={item.path}
                         onClick={item.onClick || (() => safeNavigate(item.path))}
                         title={collapsed ? item.label : ''}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-1
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-base transition-colors mb-1
                             ${collapsed ? 'justify-center' : ''}
                             ${isActive(item.path)
                                 ? 'bg-blue-50 text-blue-600 font-medium'

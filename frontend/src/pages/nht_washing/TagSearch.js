@@ -173,7 +173,7 @@ const TagSearch = () => {
             <div className="flex flex-col gap-3 w-80 shrink-0">
 
                 <div className="bg-white border border-gray-100 rounded-xl p-3">
-                    <p className="text-sm font-medium text-gray-500 mb-2">Search Tag</p>
+                    <p className="text-xl font-medium text-gray-500 mb-2">Search Tag</p>
                     <div className="flex gap-2">
                         <input
                             type="text"
@@ -201,7 +201,7 @@ const TagSearch = () => {
 
                 {/* ค้นหา Job / Barcode — สแกนติดกี่ถาด ขาดถาดไหน */}
                 <div className="bg-white border border-gray-100 rounded-xl p-3">
-                    <p className="text-sm font-medium text-gray-500 mb-2">Search Job / Barcode</p>
+                    <p className="text-base font-medium text-gray-500 mb-2">Search Job / Barcode</p>
                     <div className="flex gap-2">
                         <input
                             type="text"
@@ -222,7 +222,7 @@ const TagSearch = () => {
                     </div>
 
                     {jobKey && jobSummary.length === 0 && (
-                        <p className="mt-2 text-xs text-red-500">
+                        <p className="mt-2 text-sm text-red-500">
                             ไม่เจอ lot นี้ใน tag ที่สแกนได้
                             {loadingCount > 0 && <span className="text-gray-400"> (กำลังโหลดข้อมูลอีก {loadingCount} tag)</span>}
                         </p>
@@ -234,7 +234,7 @@ const TagSearch = () => {
 
                 <div className="flex-1 bg-white border border-gray-100 rounded-xl flex flex-col overflow-hidden min-h-0">
                     <div className="px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
-                        <p className="text-sm font-medium text-gray-500">Tags in range</p>
+                        <p className="text-lg font-medium text-gray-500">Tags in range</p>
                         {/* <span className="text-sm text-gray-400">{tags.length} tags</span> */}
                         <span className="text-sm text-gray-400">
                             {jobKey ? `${visibleTags.length}/${tags.length}` : tags.length} tags
@@ -242,7 +242,7 @@ const TagSearch = () => {
                     </div>
                     <div className="overflow-y-auto flex-1">
                         {tags.length === 0 && (
-                            <p className="text-center py-8 text-gray-300 text-sm">No tags detected</p>
+                            <p className="text-center py-8 text-gray-300 text-xl">No tags detected</p>
                         )}
                         {/* {tags.map(tag => { */}
                         {visibleTags.map(tag => {
@@ -262,18 +262,18 @@ const TagSearch = () => {
                                             isActive ? 'bg-blue-500' : 'bg-green-400'
                                         }`} />
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-mono font-medium text-gray-700 truncate">{tag}</p>
+                                        <p className="text-base font-mono font-medium text-gray-700 truncate">{tag}</p>
                                         {data && (
-                                            <p className="text-xs text-gray-400 truncate">
+                                            <p className="text-base text-gray-400 truncate">
                                                 {data.barcode} · {data.part_no}
                                             </p>
                                         )}
                                         {data === null && (
-                                            <p className="text-xs text-red-400">Not found in DB</p>
+                                            <p className="text-base text-red-400">Not found in DB</p>
                                         )}
                                     </div>
                                     {sp2 && (
-                                        <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${sp2.bg} ${sp2.text}`}>
+                                        <span className={`text-base px-2 py-0.5 rounded-full shrink-0 ${sp2.bg} ${sp2.text}`}>
                                             {sp2.label}
                                         </span>
                                     )}
@@ -289,7 +289,7 @@ const TagSearch = () => {
 
                 {!selected && (
                     <div className="flex-1 bg-white border border-gray-100 rounded-xl flex items-center justify-center">
-                        <p className="text-gray-300 text-sm">Select a tag to view details</p>
+                        <p className="text-gray-300 text-2xl">Select a tag to view details</p>
                     </div>
                 )}
 
@@ -297,15 +297,15 @@ const TagSearch = () => {
                     <>
                         <div className="bg-white border border-gray-100 rounded-xl p-4 flex items-center gap-4">
                             <div className="flex-1">
-                                <p className="text-xs text-gray-400 mb-1">Tag ID</p>
+                                <p className="text-base text-gray-400 mb-1">Tag ID</p>
                                 <p className="text-base font-mono font-semibold text-gray-800">{selected}</p>
                             </div>
                             {selectedData && sp && (
                                 <>
-                                    <span className={`text-sm px-3 py-1.5 rounded-full font-medium ${sp.bg} ${sp.text}`}>
+                                    <span className={`text-base px-3 py-1.5 rounded-full font-medium ${sp.bg} ${sp.text}`}>
                                         {sp.label}
                                     </span>
-                                    <span className={`text-sm px-3 py-1.5 rounded-full ${selectedData.status === 'Ongoing'
+                                    <span className={`text-base px-3 py-1.5 rounded-full ${selectedData.status === 'Ongoing'
                                         ? 'bg-blue-50 text-blue-600'
                                         : 'bg-green-50 text-green-600'
                                         }`}>
@@ -314,7 +314,7 @@ const TagSearch = () => {
                                 </>
                             )}
                             {selectedData === null && (
-                                <span className="text-sm px-3 py-1.5 rounded-full bg-red-50 text-red-500">
+                                <span className="text-base px-3 py-1.5 rounded-full bg-red-50 text-red-500">
                                     Not Found
                                 </span>
                             )}
@@ -337,8 +337,8 @@ const TagSearch = () => {
                                     { label: 'Updated', value: new Date(selectedData.updated_at).toLocaleString('en-GB') },
                                 ].map(({ label, value, mono }) => (
                                     <div key={label} className="bg-white border border-gray-100 rounded-xl p-4">
-                                        <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">{label}</p>
-                                        <p className={`text-sm font-medium ${value ? 'text-gray-700' : 'text-gray-300'} ${mono ? 'font-mono' : ''}`}>
+                                        <p className="text-base text-gray-400 uppercase tracking-wider mb-1">{label}</p>
+                                        <p className={`text-base font-medium ${value ? 'text-gray-700' : 'text-gray-300'} ${mono ? 'font-mono' : ''}`}>
                                             {value || '—'}
                                         </p>
                                     </div>

@@ -64,11 +64,11 @@ const LoginModal = ({ onSuccess, onClose }) => {
         className="bg-white rounded-2xl p-10 w-96 shadow-xl"
         onClick={e => e.stopPropagation()}
       >
-        <p className="text-lg font-semibold text-gray-800 mb-1">Sign in</p>
+        <p className="text-2xl font-semibold text-gray-800 mb-1">Sign in</p>
 
         <div className="flex flex-col gap-4">
           <div>
-            <p className="text-sm text-gray-500 mb-1.5">Employee ID</p>
+            <p className="text-base text-gray-500 mb-1.5">Employee ID</p>
             <input
               type="text"
               value={empId}
@@ -80,7 +80,7 @@ const LoginModal = ({ onSuccess, onClose }) => {
             />
           </div>
           <div>
-            <p className="text-sm text-gray-500 mb-1.5">Password</p>
+            <p className="text-base text-gray-500 mb-1.5">Password</p>
             <input
               type="password"
               value={password}
@@ -95,7 +95,7 @@ const LoginModal = ({ onSuccess, onClose }) => {
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="h-11 w-full text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 mt-2"
+            className="h-11 w-full text-xl rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 mt-2"
           >
             {loading ? 'Signing in...' : 'Sign in'}
           </button>

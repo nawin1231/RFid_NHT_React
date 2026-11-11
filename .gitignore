@@ -29,6 +29,8 @@ service/_internal/
 *.spec
 service/rfid_service.exe
 service/start_rfid.exe
+service/deploy_exe/
+service/exe_backup/
 
 # Backup / draft files
 service/main_backup.py

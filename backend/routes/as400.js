@@ -11,6 +11,14 @@ const API_CHECKING_URL = process.env.API_CHECKING_URL;
 const API_TOKEN = process.env.API_TOKEN;
 const AS400_TIMEOUT_MS = 8000;
 
+// A5 receive 1520 BF + A6 checking — false = ไม่ส่ง AS400 (operator ยิง handy receive เอง)
+// ยังบันทึก log เป็น LOCAL → กันส่งซ้ำ / หา IN ของถาดได้เหมือนเดิม · true = กลับมาส่ง
+const SEND_ON_MACHINE = false;
+// A7 issue 1520 BF — ระบบส่งเองตอน completed · issue ไม่เบิ้ล (operator ยิงไปก่อน → AS400 ตีกลับ → MANUAL)
+const SEND_ISSUE_1520 = true;
+const markLocal = (pool, logId, flag = "SEND_ON_MACHINE") =>
+  updateStatus(pool, logId, "LOCAL", null, `not sent (${flag} = false)`);
+
 // trackId format: process+location_DDMMYYYY_jobtag
 const generateTrackId = (process, location, jobtag) => {
   const now = new Date();
@@ -35,24 +43,13 @@ const trackIdFromIn = async (
       .input("location", sql.VarChar, location)
       .input("tag_id", sql.VarChar, tagId)
       .execute("Stored_tb_rfid_as400_log_last_in_track_id");
-    const found = r.recordset[0]?.track_id;
-    if (found && found !== fallback) {
-      console.log(
-        `[as400] ${jobtag} ใช้ trackId ของ ${inEvent}: ${found} (แทน ${fallback})`,
-      );
-    }
-    return found || fallback;
-  } catch (err) {
-    console.error(
-      `[as400] last_in_track_id ${jobtag}: ${err.message} → ใช้ trackId แบบเดิม`,
-    );
+    return r.recordset[0]?.track_id || fallback;
+  } catch {
     return fallback;
   }
 };
 
-// insert log → return id
-// const logToDB = async (pool, eventType, apiType, payload) => {
-// เปลี่ยนชื่อเป็น logToDBOnce — ไส้ในเหมือนเดิมทุกบรรทัด · ทุก route เรียก logToDB ตัวใหม่ด้านล่าง
+// insert log 1 ครั้ง → return id (route ใช้ logToDB ด้านล่างแทน)
 const logToDBOnce = async (pool, eventType, apiType, payload) => {
   const result = await pool
     .request()
@@ -70,13 +67,7 @@ const logToDBOnce = async (pool, eventType, apiType, payload) => {
   return result.recordset[0].id;
 };
 
-// ตาข่ายของ logToDB
-// เดิม: insert log พลาดครั้งเดียว (pool เต็ม / DB สะดุด) → route โยน 500 → ไม่ส่ง AS400 + ไม่มีแถวใน log
-//       → retryErrors มองไม่เห็น → event หายเงียบ ไม่มีร่องรอยใน DB
-// ตอนนี้: ลองใหม่ก่อน · ยังไม่ได้ → จดลงไฟล์สำรองไว้เป็นหลักฐาน แล้ว throw ต่อเหมือนเดิม
-//    "ไม่ส่ง AS400" เมื่อไม่มีแถว log เพราะตัวกันส่งซ้ำ
-//    (last_on_machine_event, check_last_event) อ่านจากตาราง log — ส่งไปโดยไม่มีแถว = อาจส่งซ้ำทีหลัง
-//    ข้อมูลในไฟล์ยังไม่เคยถึง AS400 จึงเอาไปส่งซ้ำเองได้ปลอดภัย
+// insert log พลาด → ลองใหม่ 2 ครั้ง → ยังไม่ได้ จดลง logs/as400_failed.jsonl แล้ว throw
 const LOG_RETRY_DELAYS_MS = [500, 1500];
 const FAILED_LOG_FILE = path.join(__dirname, "../logs/as400_failed.jsonl");
 
@@ -89,13 +80,9 @@ const logToDB = async (pool, eventType, apiType, payload) => {
       return await logToDBOnce(pool, eventType, apiType, payload);
     } catch (err) {
       lastErr = err;
-      console.error(
-        `[logToDB] ${eventType} ${payload.jobtag || ""} ครั้งที่ ${attempt + 1} พลาด: ${err.message}`,
-      );
     }
   }
 
-  // ลองครบแล้วยังไม่ได้ → จดลงไฟล์ 1 บรรทัด = 1 event (JSON Lines)
   const line =
     JSON.stringify({
       failed_at: new Date().toISOString(),
@@ -107,11 +94,8 @@ const logToDB = async (pool, eventType, apiType, payload) => {
   try {
     fs.mkdirSync(path.dirname(FAILED_LOG_FILE), { recursive: true });
     fs.appendFileSync(FAILED_LOG_FILE, line, "utf-8");
-    console.error(
-      `[logToDB] ${eventType} ${payload.jobtag || ""} → ไม่ได้ส่ง AS400 · จดไว้ที่ ${FAILED_LOG_FILE}`,
-    );
   } catch (fileErr) {
-    // เขียนไฟล์ก็ไม่ได้ → อย่างน้อยให้ข้อมูลเต็มอยู่ใน console
+    // เขียนไฟล์ก็ไม่ได้ → ข้อมูลจะหาย เหลือที่เดียวคือ console (เก็บ log นี้ไว้)
     console.error(
       `[logToDB] เขียนไฟล์สำรองไม่ได้ (${fileErr.message}) · ข้อมูลที่หาย: ${line}`,
     );
@@ -135,20 +119,31 @@ const updateStatus = async (
     .input("response_msg", sql.VarChar, responseMsg)
     .execute("Stored_tb_rfid_as400_log_update_status");
 };
-// แก้ไข: updateStatus ไม่ต้อง retry เพราะถ้า pool เต็ม / DB สะดุด → logToDB ก็จะไม่ผ่าน → ไม่ส่ง AS400 → ไม่มีแถว log → retryErrors มองไม่เห็น event หายเงียบ
+
+// แสดง status ของ 207 (processed with some errors) → "REJECTED" / "MANUAL" / "ERROR"
 const REJECT_PATTERNS = ["Process/Location different"];
-const statusOf207 = (data) => {
+const statusOf207 = (data, manual = null) => {
   const items = Array.isArray(data?.data) ? data.data : [];
-  const rejected = items.some((i) =>
+  const rejectedItem = items.find((i) =>
     REJECT_PATTERNS.some((p) =>
       `${i?.message ?? ""} ${i?.reason ?? ""}`.includes(p),
     ),
   );
-  return rejected ? "REJECTED" : "ERROR";
+  if (!rejectedItem) return "ERROR";
+  const m = `${rejectedItem.message ?? ""}`.match(/expected\s+(\S+)\/(\S+)/);
+  if (manual?.kind === "OUT") {
+    // ยังอยู่ STOR BF = operator ยังไม่ยิง receive 1520 → ERROR ให้ retry จนกว่าจะรับ
+    if (m && m[1] === "STOR" && m[2] === "BF") return "ERROR";
+    return "MANUAL";
+  }
+  if (manual?.kind === "IN") {
+    if (m && m[1] === `${manual.process}` && m[2] === `${manual.location}`)
+      return "MANUAL";
+  }
+  return "REJECTED";
 };
 
-// ส่ง movement API + update status
-const sendMovement = async (pool, logId, body) => {
+const sendMovement = async (pool, logId, body, manual = null) => {
   // ⚠️⚠️ TEST MODE — ปิดส่ง AS400 ชั่วคราว ต้องลบ 3 บรรทัดนี้ก่อนใช้งานจริง ⚠️⚠️
   // await updateStatus(pool, logId, 'MOCK', null, 'TEST MODE - not sent');
   // return;
@@ -159,11 +154,10 @@ const sendMovement = async (pool, logId, body) => {
     });
     // 207 = processed with some errors
     if (axiosRes.status === 207) {
-      // await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
       await updateStatus(
         pool,
         logId,
-        statusOf207(axiosRes.data),
+        statusOf207(axiosRes.data, manual),
         null,
         JSON.stringify(axiosRes.data),
       );
@@ -194,7 +188,6 @@ const sendMovement = async (pool, logId, body) => {
       resMsg,
     );
   }
-  // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
 };
 
 // A1 — PALLET IN (MOVE_IN 1201 BFW)
@@ -240,7 +233,6 @@ router.post("/pallet-out", async (req, res) => {
       return res.json({ result: "ALREADY_OUT" });
     }
     const payload = {
-      // track_id: generateTrackId('1201', location, barcode),
       track_id: await trackIdFromIn(
         pool,
         { jobtag: barcode, inEvent: "PALLET_IN", location: `BF${location}` },
@@ -305,7 +297,6 @@ router.post("/washing-result", async (req, res) => {
     const { barcode, machine_no, production_qty } = req.body;
     const pool = await poolPromise;
     const payload = {
-      // track_id: generateTrackId('1201', 'RUN', barcode),
       track_id: await trackIdFromIn(
         pool,
         { jobtag: barcode, inEvent: "WASHING_RUN" },
@@ -344,7 +335,6 @@ router.post("/washing-result", async (req, res) => {
         },
       );
       if (axiosRes.status === 207) {
-        // await updateStatus(pool, logId, 'ERROR', null, JSON.stringify(axiosRes.data));
         await updateStatus(
           pool,
           logId,
@@ -379,7 +369,6 @@ router.post("/washing-result", async (req, res) => {
         resMsg,
       );
     }
-    // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
     res.json({ result: "OK" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -403,16 +392,25 @@ router.post("/on-machine-in", async (req, res) => {
       tag_id: tag_id || null,
     };
     const logId = await logToDB(pool, "ON_MACHINE_IN", "movement", payload);
-    await sendMovement(pool, logId, {
-      trackId: payload.track_id,
-      machineNo: payload.machine_no,
-      movementAction: payload.movement_action,
-      jobtag: payload.jobtag,
-      process: payload.process,
-      location: payload.location,
-      qty: payload.production_qty,
-      timestamp: new Date().toISOString(),
-    });
+    if (!SEND_ON_MACHINE) {
+      await markLocal(pool, logId);
+      return res.json({ result: "OK" });
+    }
+    await sendMovement(
+      pool,
+      logId,
+      {
+        trackId: payload.track_id,
+        machineNo: payload.machine_no,
+        movementAction: payload.movement_action,
+        jobtag: payload.jobtag,
+        process: payload.process,
+        location: payload.location,
+        qty: payload.production_qty,
+        timestamp: new Date().toISOString(),
+      },
+      { kind: "IN", process: payload.process, location: payload.location },
+    );
     res.json({ result: "OK" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -450,6 +448,10 @@ router.post("/checking", async (req, res) => {
       process: "1520",
       location: "BF",
     });
+    if (!SEND_ON_MACHINE) {
+      await markLocal(pool, logId);
+      return res.json({ result: "OK" });
+    }
     try {
       const axiosRes = await axios.post(`${API_CHECKING_URL}`, payload, {
         headers: { Authorization: API_TOKEN },
@@ -490,7 +492,6 @@ router.post("/checking", async (req, res) => {
         resMsg,
       );
     }
-    // await updateStatus(pool, logId, 'PENDING', null, 'MOCK MODE');
     res.json({ result: "OK" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -515,7 +516,7 @@ router.post("/on-machine-out", async (req, res) => {
     const { tag_id, barcode, qty, machine_no } = req.body;
     const pool = await poolPromise;
 
-    // กันส่ง A7 ซ้ำ / ส่ง OUT ทั้งที่ไม่มี IN
+    // กันส่ง A7 ซ้ำ / ส่ง OUT ทั้งที่ไม่มี IN · SP ยังไม่มี id หรือพัง → ส่งตามเดิม
     let inRow = null;
     try {
       const lastIn = await lastLogRow(pool, barcode, "ON_MACHINE_IN", tag_id);
@@ -523,32 +524,20 @@ router.post("/on-machine-out", async (req, res) => {
         .row;
       inRow = lastIn.row;
       if (lastIn.hasId) {
-        if (!inRow) {
-          console.log(
-            `[as400] A7 ข้าม ${barcode} tag=${tag_id}: ไม่มี ON_MACHINE_IN`,
-          );
-          return res.json({ result: "SKIPPED_NO_IN" });
-        }
-        if (outRow && outRow.id > inRow.id) {
-          console.log(
-            `[as400] A7 ข้าม ${barcode} tag=${tag_id}: OUT ไปแล้ว (log id ${outRow.id})`,
-          );
-          return res.json({ result: "SKIPPED_ALREADY_OUT" });
-        }
+        if (!inRow) return res.json({ result: "SKIPPED_NO_IN" });
+        if (outRow && outRow.id > inRow.id) return res.json({ result: "SKIPPED_ALREADY_OUT" });
       }
-    } catch (err) {
-      console.error(`[as400] A7 guard ${barcode}: ${err.message} → ส่งตามเดิม`);
+    } catch {
+      // SP พัง → ส่งตามเดิม
     }
 
     const payload = {
-      // track_id: generateTrackId('1520', 'BF', barcode),
       track_id: await trackIdFromIn(
         pool,
         { jobtag: barcode, inEvent: "ON_MACHINE_IN", tagId: tag_id },
         generateTrackId("1520", "BF", barcode),
       ),
-      // machine_no: machine_no || '',
-      machine_no: machine_no || inRow?.machine_no || "",
+      machine_no: machine_no || inRow?.machine_no || "", // ส่งจาก completed ไม่มีเครื่อง → ใช้ของแถว IN
       movement_action: "MOVE_OUT",
       jobtag: barcode,
       process: "1520",
@@ -557,16 +546,25 @@ router.post("/on-machine-out", async (req, res) => {
       tag_id: tag_id || null,
     };
     const logId = await logToDB(pool, "ON_MACHINE_OUT", "movement", payload);
-    await sendMovement(pool, logId, {
-      trackId: payload.track_id,
-      machineNo: payload.machine_no,
-      movementAction: payload.movement_action,
-      jobtag: payload.jobtag,
-      process: payload.process,
-      location: payload.location,
-      qty: payload.production_qty,
-      timestamp: new Date().toISOString(),
-    });
+    if (!SEND_ISSUE_1520) {
+      await markLocal(pool, logId, "SEND_ISSUE_1520");
+      return res.json({ result: "OK" });
+    }
+    await sendMovement(
+      pool,
+      logId,
+      {
+        trackId: payload.track_id,
+        machineNo: payload.machine_no,
+        movementAction: payload.movement_action,
+        jobtag: payload.jobtag,
+        process: payload.process,
+        location: payload.location,
+        qty: payload.production_qty,
+        timestamp: new Date().toISOString(),
+      },
+      { kind: "OUT" },
+    );
     res.json({ result: "OK" });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -583,16 +581,28 @@ const retryErrorsOnce = async () => {
 
     for (const row of result.recordset) {
       if (row.api_type === "movement") {
-        await sendMovement(pool, row.id, {
-          trackId: row.track_id,
-          machineNo: row.machine_no || "",
-          movementAction: row.movement_action,
-          jobtag: row.jobtag,
-          process: row.process,
-          location: row.location,
-          qty: row.production_qty,
-          timestamp: new Date().toISOString(),
-        });
+        // 1520 ที่ปิดส่งไว้ไม่เคยเป็น ERROR (บันทึก LOCAL ตั้งแต่แรก) → ERROR ที่เจอ = ตั้งใจให้ส่ง (เช่น fix2)
+        const is1520 = `${row.process}` === "1520" && row.location === "BF";
+        const manual = !is1520
+          ? null
+          : row.movement_action === "MOVE_OUT"
+            ? { kind: "OUT" }
+            : { kind: "IN", process: row.process, location: row.location };
+        await sendMovement(
+          pool,
+          row.id,
+          {
+            trackId: row.track_id,
+            machineNo: row.machine_no || "",
+            movementAction: row.movement_action,
+            jobtag: row.jobtag,
+            process: row.process,
+            location: row.location,
+            qty: row.production_qty,
+            timestamp: new Date().toISOString(),
+          },
+          manual,
+        );
       } else if (row.api_type === "production-result") {
         try {
           const axiosRes = await axios.post(
@@ -613,9 +623,6 @@ const retryErrorsOnce = async () => {
               timeout: AS400_TIMEOUT_MS,
             },
           );
-          // await updateStatus(pool, row.id,
-          //     axiosRes.status === 207 ? 'ERROR' : 'SUCCESS',
-          //     null, JSON.stringify(axiosRes.data));
           await updateStatus(
             pool,
             row.id,
@@ -640,17 +647,10 @@ const retryErrorsOnce = async () => {
   } catch (err) {}
 };
 
-// กันรอบทับ — 1 รอบส่งได้ถึง 100 แถว × 8 วิ (AS400_TIMEOUT_MS) = 800 วิ
-// แต่ server.js เรียกทุก 300 วิ → ถ้า AS400 ช้า รอบใหม่เริ่มก่อนรอบเก่าจบ
-// → ดึงแถว ERROR ชุดเดิมมาส่งซ้อน = ส่งซ้ำไป AS400
+// กันรอบ retry ทับกัน (AS400 ช้า รอบเก่ายังไม่จบ → รอบใหม่ส่งแถวเดิมซ้ำ)
 let retryRunning = false;
 const retryErrors = async () => {
-  if (retryRunning) {
-    console.warn(
-      `[retryErrors] ${new Date().toLocaleTimeString()} รอบก่อนยังไม่เสร็จ → ข้ามรอบนี้`,
-    );
-    return;
-  }
+  if (retryRunning) return;
   retryRunning = true;
   try {
     await retryErrorsOnce();

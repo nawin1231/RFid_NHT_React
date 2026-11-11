@@ -12,6 +12,7 @@ const pageTitles = {
     '/reader-status': 'Reader Status',
     '/reader-config': 'Reader Config',
     '/mbr-monitor': 'MBR Monitor',
+    '/mbr-monitor-qty': 'MBR Monitor QTY',
     '/tag-search': 'Tag Search',
     '/location-reader': 'Location',
 };
@@ -53,19 +54,19 @@ const Navbar = () => {
 
             {/* title + ปุ่มคู่มืออยู่ด้วยกัน */}
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-gray-800">{title}</span>
+                <span className="text-xl font-medium text-gray-800">{title}</span>
                 {PageGuild[pathname] && (
                     <button
                         onClick={showGuide}
-                        className="text-blue-500 hover:text-blue-500 text-xs flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
+                        className="text-blue-500 hover:text-blue-500 text-base flex items-center gap-1 px-2 py-1 rounded hover:bg-blue-50 transition-colors"
                     >
-                        <span className="text-sm">ⓘ</span> คู่มือ
+                        <span className="text-sm">ⓘ</span> คู่มือการใช้งาน
                     </button>
                 )}
             </div>
 
             <div className="flex items-center gap-4">
-                <span className="text-xs text-gray-400">
+                <span className="text-base text-gray-400">
                     Date: {currentTime.toLocaleDateString('th-TH')} | Time: {currentTime.toLocaleTimeString('th-TH')}
                 </span>
                 {user && (

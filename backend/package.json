@@ -16,6 +16,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "msedge-tts": "^2.1.1",
     "msnodesqlv8": "^5.2.0",
     "mssql": "^12.5.5",
     "sequelize": "^6.37.8",

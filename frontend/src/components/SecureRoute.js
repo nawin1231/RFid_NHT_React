@@ -27,7 +27,7 @@ const SecureRoute = ({ children, requireAuth = false }) => {
         return (
             <>
                 <div className="flex-1 flex items-center justify-center">
-                    <p className="text-gray-300 text-sm">Sign in to access this page</p>
+                    <p className="text-gray-300 text-base">Sign in to access this page</p>
                 </div>
                 {showModal && (
                     <LoginModal

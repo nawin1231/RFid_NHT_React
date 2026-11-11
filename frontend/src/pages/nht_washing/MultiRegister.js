@@ -12,7 +12,7 @@ const showAlert = (msg, type) => {
         icon: type,
         title: msg,
         showConfirmButton: false,
-        timer: 1000,
+        timer: 1800,
     });
 };
 
@@ -290,7 +290,7 @@ const MultiRegister = () => {
             {/* SCAN BARCODE */}
             {!started && (
                 <div className="bg-white border border-gray-100 rounded-xl p-4">
-                    <p className="text-sm font-medium text-gray-500 mb-2">Scan barcode to add job</p>
+                    <p className="text-base font-medium text-gray-500 mb-2">Scan barcode to add job</p>
                     <input
                         ref={inputRef}
                         type="text"
@@ -309,12 +309,12 @@ const MultiRegister = () => {
             <div className="flex-1 bg-white border border-gray-100 rounded-xl flex flex-col overflow-hidden min-h-0">
 
                 <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-500">Jobs ({jobs.length})</p>
+                    <p className="text-xl font-medium text-gray-500">Jobs ({jobs.length})</p>
                     <div className="flex gap-2">
                         {(jobs.length > 0 || started) && (
                             <button
                                 onClick={cancelAll}
-                                className="h-9 px-4 text-sm rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
+                                className="h-9 px-4 text-base rounded-lg border border-red-200 text-red-500 hover:bg-red-50"
                             >
                                 Cancel All
                             </button>
@@ -323,12 +323,12 @@ const MultiRegister = () => {
                             <button
                                 onClick={startRegistering}
                                 disabled={jobs.length === 0}
-                                className="h-9 px-5 text-sm rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
+                                className="h-9 px-5 text-base rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50"
                             >
                                 Start Registering →
                             </button>
                         ) : (
-                            <span className="text-sm px-3 py-1 rounded-full bg-blue-50 text-blue-600">
+                            <span className="text-base px-3 py-1 rounded-full bg-blue-50 text-blue-600">
                                 Scanning in progress
                             </span>
                         )}
@@ -337,13 +337,13 @@ const MultiRegister = () => {
 
                 <div className="overflow-y-auto flex-1">
                     {jobs.length === 0 && (
-                        <p className="text-center py-12 text-gray-300 text-sm">No jobs added yet</p>
+                        <p className="text-center py-12 text-gray-300 text-2xl">No jobs added yet</p>
                     )}
                     <table className="w-full">
                         <thead className="bg-gray-50 sticky top-0">
                             <tr>
                                 {['', 'Job Ticket', 'Lot No.', 'Part No.', 'Machine', 'Qty', 'Pcs/Tray', 'Process', 'RW', 'Progress', ''].map((col, i) => (
-                                    <th key={i} className="text-left px-3 py-2.5 text-sm font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
+                                    <th key={i} className="text-left px-3 py-2.5 text-base font-medium text-gray-400 border-b border-gray-100 whitespace-nowrap">
                                         {col}
                                     </th>
                                 ))}
@@ -365,14 +365,14 @@ const MultiRegister = () => {
                                             <span className={`block w-2.5 h-2.5 rounded-full ${isActive ? 'bg-blue-600' : isDone ? 'bg-green-500' : 'bg-gray-200'
                                                 }`} />
                                         </td>
-                                        <td className="px-3 py-3.5 font-mono text-sm font-medium text-blue-600">{job.job_ticket_no}</td>
-                                        <td className="px-3 py-3.5 font-mono text-sm text-gray-600">{job.lot_no}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-600">{job.part_no}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.machine_no || '—'}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.quantity?.toLocaleString()}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.tray_qty?.toLocaleString() ?? '—'}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.process || '—'}</td>
-                                        <td className="px-3 py-3.5 text-sm text-gray-500">{job.rw_diameter || '—'}</td>
+                                        <td className="px-3 py-3.5 font-mono text-base font-medium text-blue-600">{job.job_ticket_no}</td>
+                                        <td className="px-3 py-3.5 font-mono text-base text-gray-600">{job.lot_no}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-600">{job.part_no}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-500">{job.machine_no || '—'}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-500">{job.quantity?.toLocaleString()}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-500">{job.tray_qty?.toLocaleString() ?? '—'}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-500">{job.process || '—'}</td>
+                                        <td className="px-3 py-3.5 text-base text-gray-500">{job.rw_diameter || '—'}</td>
                                         <td className="px-3 py-3.5">
                                             <div className="flex items-center gap-2">
                                                 <div className="w-28 bg-gray-100 rounded-full h-2">
@@ -381,26 +381,26 @@ const MultiRegister = () => {
                                                         style={{ width: job.tray_counter > 0 ? `${(job.tray_done / job.tray_counter) * 100}%` : '0%' }}
                                                     />
                                                 </div>
-                                                <span className="text-sm text-blue-600 whitespace-nowrap">
+                                                <span className="text-base text-blue-600 whitespace-nowrap">
                                                     {job.tray_done}/{job.tray_counter}
                                                 </span>
                                             </div>
                                         </td>
                                         <td className="px-3 py-3.5">
                                             {isActive && started && (
-                                                <span className="text-xs bg-blue-600 text-white px-2 py-1 rounded-full">
+                                                <span className="text-sm bg-blue-600 text-white px-2 py-1 rounded-full">
                                                     ACTIVE
                                                 </span>
                                             )}
                                             {isDone && (
-                                                <span className="text-xs bg-green-600 text-white px-2 py-1 rounded-full">
+                                                <span className="text-sm bg-green-600 text-white px-2 py-1 rounded-full">
                                                     DONE
                                                 </span>
                                             )}
                                             {!started && (
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); removeJob(job.job_ticket_no); }}
-                                                    className="text-sm text-gray-300 hover:text-red-500"
+                                                    className="text-base text-gray-300 hover:text-red-500"
                                                 >
                                                     ✕
                                                 </button>
