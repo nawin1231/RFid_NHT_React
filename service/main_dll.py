@@ -55,8 +55,8 @@ PROCESS_MAPPING = {
 }
 READER_PROCESS_CODE = PROCESS_MAPPING.get(READER_TYPE, {}).get('process_code', '')
 
-# NODE_URL = "http://localhost:2002/api/rfid"
-NODE_URL = "http://10.128.17.252:2002/api/rfid"
+NODE_URL = "http://localhost:2002/api/rfid"
+# NODE_URL = "http://10.128.17.252:2002/api/rfid"
 
 # ===== STATE =====
 reader_state = {

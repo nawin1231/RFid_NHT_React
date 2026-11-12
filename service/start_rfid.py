@@ -39,7 +39,7 @@ def start_reader_process(index, reader):
     env = os.environ.copy()
     env['READER_INDEX']     = str(index)   # บอก main_dll.py ว่าตัวเองเป็น index ไหน
     env['PYTHONUNBUFFERED'] = '1'
-    USE_EXE = True # True ขึ้น server จริง False ทดสอบบน localhost
+    USE_EXE = False # True ขึ้น server จริง False ทดสอบบน localhost
     # cmd = [
     #     sys.executable, '-m', 'uvicorn', 'main_dll:app',
     #     '--port', str(port), '--log-level', 'warning'
