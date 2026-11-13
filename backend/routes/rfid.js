@@ -309,15 +309,42 @@ router.post('/register-lot', async (req, res) => {
 // ลงทะเบียน tray จาก tag scan
 router.post('/register-tray', async (req, res) => {
     try {
-        const { tag_id, barcode } = req.body;
+        const { tag_id, barcode, forceClear = false } = req.body;
         const pool = await poolPromise;
         const result = await pool.request()
             .input('tag_id', sql.VarChar, tag_id)
             .input('barcode', sql.VarChar, barcode)
+            .input('force_clear', sql.Bit, forceClear ? 1 : 0)
             .execute('Stored_tb_rfid_tray_insert');
-
+        // force clear
+        const row = result.recordset[0];
+        if (row?.result === 'TAG_IN_USE') {
+            return res.json({
+                result: 'TAG_IN_USE',
+                jobtag: row.jobtag,
+                sub_process: row.sub_process,
+                process: row.process,
+                process_code: row.process_code,
+                part_no: row.part_no,
+            });
+        }
         res.json({ result: result.recordset[0]?.result ?? 'OK' });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ประวัติ  jobtag ที่สมัครวันนี้
+router.get("/register-history/today", async (req, res) => {
+    try {
+        const pool = await poolPromise;
+        const result = await pool.request()
+            .execute('[stored_tb_rfid_dashboard_monitor]');
+        const lotList = result.recordsets[1] || [];
+        res.json(lotList.slice(0, 50));
+        
+    } catch (err) {
+        console.error("[Monitor SP Error]:", err);
         res.status(500).json({ error: err.message });
     }
 });

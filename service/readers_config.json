@@ -12,7 +12,7 @@
         "type": "pallet",
         "enabled": false,
         "ip": "192.168.1.101",
-        "power": 15,
+        "power": 30,
         "location": "W1"
     },
     {
